@@ -8,7 +8,7 @@ The build makes two things:
 
 | Tool | Notes |
 |---|---|
-| [VitaSDK](https://vitasdk.org) | Set the `VITASDK` environment variable to its folder, e.g. `C:\vitasdk`. On Windows, extract the `vitasdk-x86_64-w64-mingw32` snapshot from [vitasdk/autobuilds](https://github.com/vitasdk/autobuilds/releases) to `C:\vitasdk`, then run `vdpm refresh nightly` once. |
+| [VitaSDK](https://vitasdk.org) | Only to build the VPK (not needed for the game files alone). Set the `VITASDK` environment variable to its folder, e.g. `C:\vitasdk`. On Windows, extract the `vitasdk-x86_64-w64-mingw32` snapshot from [vitasdk/autobuilds](https://github.com/vitasdk/autobuilds/releases) to `C:\vitasdk`, then run `vdpm refresh nightly` once. |
 | [Python 3.11+](https://www.python.org/downloads/) | Tick "Add python.exe to PATH" |
 | [Node.js LTS](https://nodejs.org) | Used by the model exporters |
 | [Git](https://git-scm.com) | |
@@ -24,6 +24,12 @@ The build fetches the rest itself:
 **Windows:** double-click `Build MKW Vita.bat`, drag in your Mario Kart Wii
 (USA) `.iso` or `.wbfs`, and press Enter. Output is also saved to
 `build-vita-log.txt`.
+
+**Only the game files** (for the VPK from the
+[releases](https://github.com/boomannotjeff/mkwiita/releases/latest), no
+VitaSDK): double-click `Build Game Files.bat` instead, or run
+`tools/vita/build.py --assets-only <disc>`. Output is saved to
+`build-assets-log.txt`.
 
 **Any OS, from a terminal:**
 
@@ -56,7 +62,8 @@ python -m venv .venv
 |---|---|
 | `tools/vita/build.py --release` | No test hooks or `runtime.log` |
 | `cmake -G Ninja -B build/vita && cmake --build build/vita` | The VPK only (VITASDK set, sources bootstrapped) |
-| `tools/vita/build_assets.py <disc>` | The game files only |
+| `tools/vita/build.py --assets-only <disc>` | The game files only, no VitaSDK needed (what `Build Game Files.bat` runs) |
+| `tools/vita/build.py --mipmaps --force-cook <disc>` | Experimental: texture mipmaps for the textures that had them on the Wii |
 
 ## Debug switches
 

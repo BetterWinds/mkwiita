@@ -42,14 +42,19 @@ yourself, on your own computer, from your own Mario Kart Wii disc.
 **To build** (see [BUILDING.md](BUILDING.md)):
 - **Mario Kart Wii (USA)**, game ID `RMCE01`, dumped as `.iso` or `.wbfs`. Convert RVZ or NKit dumps to ISO in Dolphin first. Other regions aren't supported yet.
 - A Windows PC with about 15 GB free.
-- [VitaSDK](https://vitasdk.org), [Python 3.11+](https://www.python.org/downloads/), [Node.js LTS](https://nodejs.org) and [Git](https://git-scm.com).
+- [Python 3.11+](https://www.python.org/downloads/), [Node.js LTS](https://nodejs.org) and [Git](https://git-scm.com).
+- [VitaSDK](https://vitasdk.org), only if you build the VPK yourself.
 
 ## Quick start
 
-1. Double-click **`Build MKW Vita.bat`**, drag your disc image into the window and press Enter. The first build takes 30–60 minutes.
-2. Install `build\vita\mkw.vpk` with VitaShell.
-3. Copy the **contents** of `build\vita\data\mkw\` to `ux0:data/mkw/` on the Vita, over USB or FTP in VitaShell.
-4. Launch **Mario Kart Wii** from the LiveArea.
+1. **Get the VPK:** download `mkw.vpk` from the [latest release](https://github.com/boomannotjeff/mkwiita/releases/latest).
+2. **Build the game files** from your disc: double-click **`Build Game Files.bat`**, drag your disc image into the window and press Enter. The first build takes 30–60 minutes.
+   Use the source code of the same release as your VPK (the release page has it as a zip), so the game files match the program.
+
+   *Building the VPK yourself?* Use **`Build MKW Vita.bat`** instead: it needs VitaSDK and makes both the game files and `build\vita\mkw.vpk`.
+3. Install the VPK with VitaShell.
+4. Copy the **contents** of `build\vita\data\mkw\` to `ux0:data/mkw/` on the Vita, over USB or FTP in VitaShell.
+5. Launch **Mario Kart Wii** from the LiveArea.
 
 **Please don't share the game files** (`data/mkw`): they contain Nintendo's
 game data. The VPK itself is only the program; it holds no game data.

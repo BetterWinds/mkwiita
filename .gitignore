@@ -13,5 +13,6 @@ __pycache__/
 build-cia-log.txt
 outs/
 build-vita-log.txt
+build-assets-log.txt
 # The Vita shader compiler module (extracted from your console, never shared)
 libshacccg.suprx

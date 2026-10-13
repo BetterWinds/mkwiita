@@ -450,7 +450,8 @@
         <p class="lede">Not an emulator. A native port of MKW-3DS, the 1:1 3DS recreation of Mario Kart Wii
           (not of the Wii game itself), running on the Vita's own APIs with vitaGL.</p>
         <div class="buttons">
-          <a class="btn primary" href="https://github.com/boomannotjeff/mkwiita">View on GitHub</a>
+          <a class="btn primary" href="https://github.com/boomannotjeff/mkwiita/releases/latest">Latest VPK</a>
+          <a class="btn" href="https://github.com/boomannotjeff/mkwiita">View on GitHub</a>
           <a class="btn" href="https://github.com/boomannotjeff/mkwiita/blob/master/BUILDING.md">Build guide</a>
         </div>
         <div class="vita">
@@ -565,9 +566,12 @@
         <p class="sub">You'll need a hacked Vita (HENkaku / Ensō), a Mario Kart Wii (USA) disc dump and a Windows PC.
         </p>
         <ol class="steps">
-          <li>Double-click <code>Build MKW Vita.bat</code>, drag your disc image into the window and press Enter. The
-            first build takes 30–60 minutes.</li>
-          <li>Install <code>build\vita\mkw.vpk</code> with VitaShell.</li>
+          <li>Download <code>mkw.vpk</code> from the
+            <a href="https://github.com/boomannotjeff/mkwiita/releases/latest">latest release</a>.</li>
+          <li>Build the game files: double-click <code>Build Game Files.bat</code> (from the same release's source
+            code), drag your disc image into the window and press Enter. The first build takes 30–60 minutes.
+            Building the VPK yourself? Use <code>Build MKW Vita.bat</code> instead (needs VitaSDK).</li>
+          <li>Install the VPK with VitaShell.</li>
           <li>Copy the contents of <code>build\vita\data\mkw\</code> to <code>ux0:data/mkw/</code> on the Vita.</li>
           <li>Make sure <code>ur0:data/libshacccg.suprx</code> is extracted (use ShaRKF00D), then launch from the
             LiveArea.</li>

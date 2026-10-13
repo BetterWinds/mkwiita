@@ -10,6 +10,9 @@ Steps, each skipped when already done (rerun to resume):
   3. assets   your disc -> build/vita/data/mkw (tools/vita/build_assets.py, about an hour)
   4. vpk      the game -> build/vita/mkw.vpk (CMake)
 
+--assets-only stops after step 3 and needs no VitaSDK: for a VPK downloaded
+from the releases (Build Game Files.bat).
+
 Only public tools and sources are downloaded. The disc and everything made from
 it stay on this computer.
 """
@@ -88,20 +91,29 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('disc', nargs='?', type=Path, help='Mario Kart Wii (USA) ISO or WBFS (not needed once cooked)')
     p.add_argument('--skip-assets', action='store_true', help='only build the VPK')
+    p.add_argument('--assets-only', action='store_true',
+                   help='only build the game files, for a downloaded VPK (no VitaSDK needed)')
     p.add_argument('--release', action='store_true', help='no test hooks or runtime log')
     p.add_argument('--mipmaps', action='store_true', help='experimental texture mipmaps (see tools/vita/build_assets.py)')
     p.add_argument('--force-cook', action='store_true', help='cook every asset again')
     a = p.parse_args()
+    if a.assets_only and a.skip_assets:
+        raise SystemExit('--assets-only and --skip-assets leave nothing to build')
     sys.path[:0] = [str(ROOT / 'tools')]
-    sdk = vitasdk()
-    ensure_vitagl(sdk)
-    ensure_cmake()
+    if not a.assets_only:
+        sdk = vitasdk()
+        ensure_vitagl(sdk)
+        ensure_cmake()
     ensure_tex3ds()
     run([sys.executable, 'tools/bootstrap.py'])
     if not a.skip_assets:
         run([sys.executable, 'tools/vita/build_assets.py', *([a.disc] if a.disc else []),
              *(['--mipmaps'] if a.mipmaps else []), *(['--force-cook'] if a.force_cook else [])])
     build = ROOT / 'build/vita'
+    if a.assets_only:
+        log('done:', build / 'data/mkw')
+        log('Copy the contents of that folder to ux0:data/mkw on your Vita, and install the VPK from the release.')
+        return
     run(['cmake', '-G', 'Ninja', '-S', '.', '-B', build, '-DCMAKE_BUILD_TYPE=Release', f'-DMKW_RELEASE={"ON" if a.release else "OFF"}'])
     run(['cmake', '--build', build])
     log('done:', build / 'mkw.vpk')
