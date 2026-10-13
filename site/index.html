@@ -1,0 +1,615 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mario Kart Wii for PS Vita</title>
+  <meta name="description"
+    content="A native PlayStation Vita port of Mario Kart Wii, built from MKW-3DS. Not an emulator.">
+  <meta property="og:title" content="Mario Kart Wii for PS Vita">
+  <meta property="og:description"
+    content="A native PlayStation Vita port of Mario Kart Wii, built from MKW-3DS. Not an emulator.">
+  <meta property="og:image" content="pictures/2026-10-13-013522.png">
+  <meta name="theme-color" content="#0b0d12">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0b0d12;
+      --panel: #141821;
+      --line: #232937;
+      --text: #e9ecf2;
+      --muted: #9aa3b5;
+      --red: #e4252f;
+      --yellow: #ffcc1a;
+      --blue: #3d8bff;
+      --radius: 14px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 16px/1.6 Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a {
+      color: var(--yellow);
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    img {
+      display: block;
+      max-width: 100%;
+    }
+
+    .wrap {
+      width: min(1100px, 100% - 32px);
+      margin-inline: auto;
+    }
+
+    /* Checkered racing stripe */
+    .checker {
+      height: 12px;
+      background:
+        conic-gradient(#fff 25%, #000 0 50%, #fff 0 75%, #000 0) 0 0 / 12px 12px;
+      opacity: .9;
+    }
+
+    /* Header */
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: rgba(11, 13, 18, .85);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--line);
+    }
+
+    header .wrap {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 60px;
+      gap: 16px;
+    }
+
+    .brand {
+      font-weight: 800;
+      color: var(--text);
+      letter-spacing: -.01em;
+      white-space: nowrap;
+    }
+
+    .brand span {
+      color: var(--red);
+    }
+
+    nav {
+      display: flex;
+      gap: 20px;
+      font-size: 14px;
+    }
+
+    nav a {
+      color: var(--muted);
+    }
+
+    nav a:hover {
+      color: var(--text);
+      text-decoration: none;
+    }
+
+    @media (max-width: 640px) {
+      nav a:not(.gh) {
+        display: none;
+      }
+    }
+
+    /* Hero */
+    .hero {
+      padding: 72px 0 56px;
+      text-align: center;
+    }
+
+    .tag {
+      display: inline-block;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 4px 12px;
+      border-radius: 999px;
+      background: rgba(255, 204, 26, .12);
+      color: var(--yellow);
+      border: 1px solid rgba(255, 204, 26, .3);
+    }
+
+    h1 {
+      font-size: clamp(36px, 7vw, 68px);
+      line-height: 1.05;
+      letter-spacing: -.03em;
+      margin: 20px 0 16px;
+      font-weight: 800;
+    }
+
+    h1 em {
+      font-style: normal;
+      color: var(--red);
+    }
+
+    .lede {
+      color: var(--muted);
+      font-size: clamp(16px, 2.2vw, 19px);
+      max-width: 640px;
+      margin: 0 auto 32px;
+    }
+
+    .buttons {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 22px;
+      border-radius: 10px;
+      font-weight: 600;
+      border: 1px solid var(--line);
+      color: var(--text);
+      background: var(--panel);
+    }
+
+    .btn:hover {
+      text-decoration: none;
+      border-color: #3a4357;
+    }
+
+    .btn.primary {
+      background: var(--red);
+      border-color: var(--red);
+      color: #fff;
+    }
+
+    .btn.primary:hover {
+      background: #f23a43;
+    }
+
+    /* Vita device frame */
+    .vita {
+      position: relative;
+      margin: 56px auto 0;
+      max-width: 960px;
+      filter: drop-shadow(0 30px 50px rgba(0, 0, 0, .6));
+    }
+
+    .vita .shell {
+      width: 100%;
+      height: auto;
+    }
+
+    /* Screen area of vita.webp (1200x542): x 237-961, y 43-448 */
+    .vita .screen {
+      position: absolute;
+      left: 19.75%;
+      top: 7.93%;
+      width: 60.42%;
+      height: 74.91%;
+      object-fit: cover;
+      background: #000;
+    }
+
+    /* Sections */
+    section {
+      padding: 64px 0;
+    }
+
+    h2 {
+      font-size: clamp(26px, 4vw, 36px);
+      letter-spacing: -.02em;
+      margin: 0 0 8px;
+    }
+
+    .sub {
+      color: var(--muted);
+      margin: 0 0 32px;
+    }
+
+    .features {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 22px;
+    }
+
+    .card h3 {
+      margin: 0 0 6px;
+      font-size: 17px;
+    }
+
+    .card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 8px;
+    }
+
+    /* Gallery */
+    .gallery {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 14px;
+    }
+
+    .gallery button {
+      padding: 0;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      overflow: hidden;
+      background: #000;
+      cursor: zoom-in;
+      position: relative;
+    }
+
+    .gallery img {
+      width: 100%;
+      aspect-ratio: 960 / 544;
+      object-fit: cover;
+      transition: transform .3s;
+    }
+
+    .gallery button:hover img {
+      transform: scale(1.03);
+    }
+
+    .gallery figcaption {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      padding: 24px 12px 8px;
+      font-size: 13px;
+      font-weight: 600;
+      text-align: left;
+      color: #fff;
+      background: linear-gradient(transparent, rgba(0, 0, 0, .8));
+    }
+
+    dialog {
+      border: 0;
+      padding: 0;
+      background: transparent;
+      max-width: min(1200px, 96vw);
+    }
+
+    dialog::backdrop {
+      background: rgba(0, 0, 0, .88);
+    }
+
+    dialog img {
+      width: 100%;
+      border-radius: 8px;
+    }
+
+    dialog p {
+      color: #ddd;
+      text-align: center;
+      margin: 10px 0 0;
+      font-size: 14px;
+    }
+
+    /* Status table */
+    .status {
+      display: grid;
+      gap: 8px;
+    }
+
+    .row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      padding: 14px 18px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+    }
+
+    .row span:last-child {
+      font-size: 13px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .ok {
+      color: #43d17a;
+    }
+
+    .wip {
+      color: var(--yellow);
+    }
+
+    .no {
+      color: var(--muted);
+    }
+
+    /* Steps */
+    ol.steps {
+      counter-reset: s;
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: grid;
+      gap: 12px;
+    }
+
+    ol.steps li {
+      counter-increment: s;
+      position: relative;
+      padding: 16px 18px 16px 62px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+    }
+
+    ol.steps li::before {
+      content: counter(s);
+      position: absolute;
+      left: 18px;
+      top: 14px;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: var(--red);
+      color: #fff;
+      font-weight: 800;
+      font-size: 14px;
+    }
+
+    code {
+      font: 14px ui-monospace, SFMono-Regular, Consolas, monospace;
+      background: #1d2230;
+      padding: 2px 6px;
+      border-radius: 5px;
+    }
+
+    .note {
+      margin-top: 20px;
+      padding: 14px 18px;
+      border-radius: 10px;
+      font-size: 15px;
+      border: 1px solid rgba(228, 37, 47, .35);
+      background: rgba(228, 37, 47, .08);
+    }
+
+    footer {
+      border-top: 1px solid var(--line);
+      padding: 40px 0 56px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    footer p {
+      margin: 0 0 8px;
+    }
+  </style>
+</head>
+
+<body>
+
+  <header>
+    <div class="wrap">
+      <a class="brand" href="#">MKW <span>Vita</span></a>
+      <nav>
+        <a href="#about">About</a>
+        <a href="#screens">Screenshots</a>
+        <a href="#status">Status</a>
+        <a href="#install">Install</a>
+        <a class="gh" href="https://github.com/boomannotjeff/MKW-3DS-main">Repository</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div class="hero">
+      <div class="wrap">
+        <span class="tag">Playable · work in progress</span>
+        <h1>Mario Kart Wii,<br>native on <em>PS Vita</em>.</h1>
+        <p class="lede">Not an emulator. A native port built from MKW-3DS, the 3DS rewrite of the game,
+          running on the Vita's own APIs with vitaGL.</p>
+        <div class="buttons">
+          <a class="btn primary" href="https://github.com/boomannotjeff/MKW-3DS-main">View on GitHub</a>
+          <a class="btn" href="https://github.com/boomannotjeff/MKW-3DS-main/blob/master/BUILDING.md">Build guide</a>
+        </div>
+        <div class="vita">
+          <img class="shell" src="pictures/vita.webp" alt="" width="1200" height="542">
+          <img class="screen" src="pictures/2026-10-13-013522.png"
+            alt="Mario popping a wheelie on Luigi Circuit, final lap, 2nd place">
+        </div>
+      </div>
+    </div>
+
+    <div class="checker"></div>
+
+    <section id="about">
+      <div class="wrap">
+        <h2>How it works</h2>
+        <p class="sub">The 3DS game code runs as-is, on top of a small layer that speaks Vita.</p>
+        <div class="features">
+          <div class="card">
+            <h3><span class="dot" style="background:var(--red)"></span>Real MKW physics</h3>
+            <p>Kart handling comes from Kinoko, a faithful recreation of Mario Kart Wii's physics engine.</p>
+          </div>
+          <div class="card">
+            <h3><span class="dot" style="background:var(--yellow)"></span>Native game code</h3>
+            <p>Menus, races, items and CPU racers are MKW-3DS's native code, compiled for the Vita.</p>
+          </div>
+          <div class="card">
+            <h3><span class="dot" style="background:var(--blue)"></span>3DS → Vita layer</h3>
+            <p>libctru and citro3d re-implemented: the 3DS GPU's combiners become generated GLSL shaders, and a software
+              mixer replaces the DSP.</p>
+          </div>
+          <div class="card">
+            <h3><span class="dot" style="background:#43d17a"></span>No Nintendo files</h3>
+            <p>The repo ships no game data. You build the game files yourself from your own disc.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="screens">
+      <div class="wrap">
+        <h2>Screenshots</h2>
+        <p class="sub">Captured on real Vita hardware.</p>
+        <div class="gallery">
+          <figure style="margin:0"><button data-full><img loading="lazy" src="pictures/2026-10-13-013539.png"
+                alt="LiveArea start screen">
+              <figcaption>LiveArea</figcaption>
+            </button></figure>
+          <figure style="margin:0"><button data-full><img loading="lazy" src="pictures/2026-10-13-013310.png"
+                alt="Single Player menu">
+              <figcaption>Single Player menu</figcaption>
+            </button></figure>
+          <figure style="margin:0"><button data-full><img loading="lazy" src="pictures/2026-10-13-013316.png"
+                alt="Character select">
+              <figcaption>All 24 drivers</figcaption>
+            </button></figure>
+          <figure style="margin:0"><button data-full><img loading="lazy" src="pictures/2026-10-13-013321.png"
+                alt="Vehicle select">
+              <figcaption>All 36 vehicles</figcaption>
+            </button></figure>
+          <figure style="margin:0"><button data-full><img loading="lazy" src="pictures/2026-10-13-013335.png"
+                alt="Luigi Circuit course intro">
+              <figcaption>Course intro</figcaption>
+            </button></figure>
+          <figure style="margin:0"><button data-full><img loading="lazy" src="pictures/2026-10-13-013348.png"
+                alt="Racing on Luigi Circuit with the course map">
+              <figcaption>Racing, with the Wii-style map</figcaption>
+            </button></figure>
+          <figure style="margin:0"><button data-full><img loading="lazy" src="pictures/2026-10-13-013428.png"
+                alt="Holding triple green shells in 2nd place">
+              <figcaption>Items</figcaption>
+            </button></figure>
+          <figure style="margin:0"><button data-full><img loading="lazy" src="pictures/2026-10-13-013522.png"
+                alt="Bike wheelie on the final lap">
+              <figcaption>Wheelies</figcaption>
+            </button></figure>
+          <figure style="margin:0"><button data-full><img loading="lazy" src="pictures/2026-10-13-013529.png"
+                alt="Grand Prix standings">
+              <figcaption>Grand Prix standings</figcaption>
+            </button></figure>
+        </div>
+      </div>
+    </section>
+
+    <dialog id="viewer">
+      <img alt="">
+      <p></p>
+    </dialog>
+
+    <section id="status">
+      <div class="wrap">
+        <h2>Status</h2>
+        <p class="sub">Grand Prix, VS and Time Trials run on real hardware with sound, at roughly 30 FPS.</p>
+        <div class="status">
+          <div class="row"><span>Menus, Grand Prix (50/100/150cc), VS, Time Trials</span><span class="ok">Working</span>
+          </div>
+          <div class="row"><span>All 24 drivers and 36 vehicles</span><span class="ok">Working</span></div>
+          <div class="row"><span>Items, CPU racers, results and standings</span><span class="ok">Working</span></div>
+          <div class="row"><span>Music and sound effects</span><span class="ok">Working</span></div>
+          <div class="row"><span>Wii-style course map, saved best times</span><span class="ok">Working</span></div>
+          <div class="row"><span>Widescreen 16:9 (currently 5:3 with side bars)</span><span class="wip">In
+              progress</span></div>
+          <div class="row"><span>Steady 60 FPS</span><span class="wip">In progress</span></div>
+          <div class="row"><span>Battle, Team VS, award ceremony, Mirror, online</span><span class="no">Not yet</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="install">
+      <div class="wrap">
+        <h2>Get it running</h2>
+        <p class="sub">You'll need a hacked Vita (HENkaku / Ensō), a Mario Kart Wii (USA) disc dump and a Windows PC.
+        </p>
+        <ol class="steps">
+          <li>Double-click <code>Build MKW Vita.bat</code>, drag your disc image into the window and press Enter. The
+            first build takes 30–60 minutes.</li>
+          <li>Install <code>build\vita\mkw.vpk</code> with VitaShell.</li>
+          <li>Copy the contents of <code>build\vita\data\mkw\</code> to <code>ux0:data/mkw/</code> on the Vita.</li>
+          <li>Make sure <code>ur0:data/libshacccg.suprx</code> is extracted (use ShaRKF00D), then launch from the
+            LiveArea.</li>
+        </ol>
+        <p class="note">Please don't share the built game files: they contain Nintendo's data. Full requirements and
+          troubleshooting are in the
+          <a href="https://github.com/boomannotjeff/MKW-3DS-main#readme">README</a> and
+          <a href="https://github.com/boomannotjeff/MKW-3DS-main/blob/master/BUILDING.md">BUILDING.md</a>.
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <div class="checker"></div>
+
+  <footer>
+    <div class="wrap">
+      <p>Built on <a href="https://github.com/MiniBandit/MKW-3DS">MKW-3DS</a> by MiniBandit (continuing dudewhat's
+        original 3DS port),
+        <a href="https://github.com/vabold/Kinoko">Kinoko</a> by vabold, and
+        <a href="https://github.com/Rinnegatamante/vitaGL">vitaGL</a> by Rinnegatamante.
+        Full credits in the <a href="https://github.com/boomannotjeff/MKW-3DS-main#credits">README</a>.
+      </p>
+      <p>Mario Kart Wii is © Nintendo. This is an unofficial fan project with no affiliation with Nintendo or Sony.</p>
+    </div>
+  </footer>
+
+  <script>
+    const viewer = document.getElementById('viewer');
+    const vImg = viewer.querySelector('img');
+    const vCap = viewer.querySelector('p');
+    document.querySelectorAll('[data-full]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const img = btn.querySelector('img');
+        vImg.src = img.src;
+        vImg.alt = img.alt;
+        vCap.textContent = btn.querySelector('figcaption').textContent;
+        viewer.showModal();
+      });
+    });
+    viewer.addEventListener('click', () => viewer.close());
+  </script>
+</body>
+
+</html>
