@@ -32,8 +32,11 @@ def cook(source,out,prefix,max_texture=256,preserve_vertices=False,reuse_texture
    if not png.is_file() or Image.open(png).convert('RGBA').tobytes()!=im.tobytes():raise ValueError('Reusable texture content changed: '+str(png))
   else:im.save(png)
   alpha=im.getchannel('A').getextrema()[0]<255;fmt='etc1a4' if alpha else 'etc1'
+  # Mip chains where the Wii texture had them: distant surfaces filter
+  # instead of shimmering, and sample a smaller level.
+  mips=['-m','box'] if t.get('mipCount',1)>1 else []
   if not reuse_textures:
-   subprocess.run([str(tool('tex3ds')),'-f',fmt,'-q','high','-z','none','-o',str(png.with_suffix('.t3x')),str(png)],check=True,stdout=subprocess.DEVNULL)
+   subprocess.run([str(tool('tex3ds')),'-f',fmt,'-q','high',*mips,'-z','none','-o',str(png.with_suffix('.t3x')),str(png)],check=True,stdout=subprocess.DEVNULL)
   elif not png.with_suffix('.t3x').is_file():raise ValueError('Missing reusable texture: '+str(png))
   audits.append({'source':t['name'],'name':name,'size':size,'alpha':alpha})
  # Materials tools/export_brres.ts could not translate (its receipt's fallbacks).

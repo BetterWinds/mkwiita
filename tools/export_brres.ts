@@ -33,7 +33,7 @@ fs.writeFileSync(path.join(out,'srt0.json'),JSON.stringify(archive.srt0,null,2))
 const textures=archive.tex0.map((t,i)=>{
  const name=`tex_${i}`;fs.writeFileSync(path.join(out,name+'.bin'),Buffer.from(t.data.copyToBuffer()));
  if(t.paletteData)fs.writeFileSync(path.join(out,name+'.pal'),Buffer.from(t.paletteData.copyToBuffer()));
- return {name:t.name,file:name,width:t.width,height:t.height,format:t.format,paletteFormat:t.paletteFormat};
+ return {name:t.name,file:name,width:t.width,height:t.height,format:t.format,paletteFormat:t.paletteFormat,mipCount:t.mipCount};
 });
 // Object archives may sample textures stored in the course model archive.
 // Resolve every external name used by any model of this archive, in a fixed
@@ -54,7 +54,7 @@ if(process.env.MKW_TEXTURE_SOURCES){
   const t=found.get(name);if(!t)continue;
   const file=`tex_${textures.length}`;fs.writeFileSync(path.join(out,file+'.bin'),Buffer.from(t.data.copyToBuffer()));
   if(t.paletteData)fs.writeFileSync(path.join(out,file+'.pal'),Buffer.from(t.paletteData.copyToBuffer()));
-  textures.push({name:t.name,file,width:t.width,height:t.height,format:t.format,paletteFormat:t.paletteFormat});
+  textures.push({name:t.name,file,width:t.width,height:t.height,format:t.format,paletteFormat:t.paletteFormat,mipCount:t.mipCount});
  }
 }
 fs.writeFileSync(path.join(out,"materials.json"),JSON.stringify(archive.mdl0.map(m=>({name:m.name,materials:m.materials})),null,2));

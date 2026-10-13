@@ -116,9 +116,10 @@ static int vitaPriority(int prio) {
 // The game puts its render, job and audio threads on the 3DS's second
 // application core. The Vita has three user cores: the main thread keeps core
 // 0, audio (the highest priorities) gets core 2, other pinned threads core 1.
+// Core id 3 (Vita only, the job worker) also asks for core 2.
 static int vitaAffinity(int prio, int core) {
 	if (core < 0) return 0;
-	if (prio <= 0x19) return SCE_KERNEL_CPU_MASK_USER_2;
+	if (prio <= 0x19 || core == 3) return SCE_KERNEL_CPU_MASK_USER_2;
 	return core == 0 ? SCE_KERNEL_CPU_MASK_USER_0 : SCE_KERNEL_CPU_MASK_USER_1;
 }
 extern "C" Thread threadCreate(ThreadFunc entrypoint, void* arg, size_t stack_size, int prio, int core_id, bool detached) {

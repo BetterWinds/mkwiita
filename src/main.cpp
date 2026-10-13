@@ -81,6 +81,7 @@
 #include <atomic>
 #include <functional>
 #include <memory>
+#include <string_view>
 
 // Heap split sized for the smallest launch mode, Old 3DS (64 MB application
 // region): LINEAR 32 MiB leaves about 29 MiB of ordinary heap there. Kinoko's
@@ -99,6 +100,39 @@ namespace K = Kinoko;
 static constexpr const char* DATA = "ux0:data/mkw";
 namespace mkw {extern std::atomic<unsigned> fileOpens;extern std::atomic<unsigned long long> fileOpenTicks;}
 static bool exists(const char* p) { FILE* f=fopen(p,"rb"); if(!f)return false; fclose(f);return true; }
+#ifdef __vita__
+// The Vita's race detail. Defaults leave out only what is too small to see:
+// objects under about 4 px and far item boxes' sparkle. ux0:data/mkw/quality.txt
+// overrides any field, one "name=value" per line ("reduced=1" first takes the
+// whole Old 3DS profile).
+static void applyVitaQuality(){
+    auto& q=mkw::renderQuality();
+    q.setReduced(false);q.minScreenRatio=.015f;q.boxSparkleRatio=.04f;
+    if(FILE* f=fopen("ux0:data/mkw/quality.txt","rb")){
+        char line[128];
+        while(fgets(line,sizeof line,f)){
+            char name[64];float value=0;
+            if(sscanf(line," %63[^= ] = %f",name,&value)!=2)continue;
+            const std::string_view n=name;
+            if(n=="reduced"){if(value)q.setReduced(true);}
+            else if(n=="minScreenRatio")q.minScreenRatio=value;
+            else if(n=="objectLowDistance")q.objectLowDistance=value;
+            else if(n=="shadowVolumes")q.shadowVolumes=value!=0;
+            else if(n=="bloomBlurRounds")q.bloomBlurRounds=unsigned(value);
+            else if(n=="boxSparkleRatio")q.boxSparkleRatio=value;
+            else if(n=="particleBudget")q.particleBudget=value<0?~0u:unsigned(value);
+            else if(n=="kartEffectScreens")q.kartEffectScreens=unsigned(value);
+            else if(n=="animationStep")q.animationStep=unsigned(value);
+        }
+        fclose(f);
+    }
+    // GL owns every uploaded texture, so the 3DS's move to VRAM would only copy the CPU side.
+    q.vramCourseTextures=false;
+    printf("quality: minScreenRatio %.3f objectLowDistance %.0f shadowVolumes %d bloomBlurRounds %u boxSparkleRatio %.3f particleBudget %d kartEffectScreens %u animationStep %u\n",
+        double(q.minScreenRatio),double(q.objectLowDistance),int(q.shadowVolumes),q.bloomBlurRounds,double(q.boxSparkleRatio),
+        q.particleBudget==~0u?-1:int(q.particleBudget),q.kartEffectScreens,q.animationStep);
+}
+#endif
 static K::u8* replayData=nullptr;
 using mkw::Courses;
 using mkw::CourseCount;
@@ -1058,7 +1092,11 @@ int main() {
     // Old 3DS draws reduced detail; full-quality.txt keeps every draw for QA.
     // Set before the first race loads: some reductions apply at load.
     bool new3ds=false;APT_CheckNew3DS(&new3ds);
+#ifdef __vita__
+    applyVitaQuality();
+#else
     mkw::renderQuality().setReduced(!new3ds&&!(kQa&&exists("ux0:data/mkw/full-quality.txt")));
+#endif
     report(mkw::renderQuality().reduced?"render quality reduced":"render quality full");
     if(dataReady){
         K::System::RaceConfig::RegisterInitCallback(configure,&raceGrid);
@@ -1161,7 +1199,15 @@ int main() {
     // Simulation stays at 60 Hz on every model. Old 3DS presents races at
     // 30 FPS. New 3DS and New 2DS XL present at 60, or at 30 while the 3D
     // slider is up (stereo draws every frame twice).
+#ifdef __vita__
+    // The Vita reports a New 3DS but draws races in more than one 60 Hz tick:
+    // a steady 30 instead of alternating one- and two-tick frames.
+    // ux0:data/mkw/race60.txt asks for 60.
+    const bool race60=exists("ux0:data/mkw/race60.txt");
+    auto raceTicksPerFrame=[&]{return race60&&!renderer.stereoWanted()?1u:2u;};
+#else
     auto raceTicksPerFrame=[&]{return new3ds&&!renderer.stereoWanted()?1u:2u;};
+#endif
     presentation.setTicksPerSlot(raceTicksPerFrame());
     LOGF("race presentation every %u ticks",presentation.ticksPerSlot());
     // accumulator: simulation ticks owed (1 = 1/60 s). Races owe one per top-screen

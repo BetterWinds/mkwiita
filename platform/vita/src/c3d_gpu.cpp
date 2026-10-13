@@ -329,9 +329,13 @@ Target* targetOfFrameBuf(C3D_FrameBuf* fb) {
 std::vector<Target*> targets;
 Target* topOutput = nullptr;
 
+// The framebuffer last bound (bindFramebuffer); ~0u after a bind made elsewhere.
+GLuint boundFramebuffer = ~0u;
+
 bool createTargetStorage(Target& t, GLuint colorTexture, int depthFormat) {
 	glGenFramebuffers(1, &t.fbo);
 	glBindFramebuffer(GL_FRAMEBUFFER, t.fbo);
+	boundFramebuffer = ~0u;
 	if (!colorTexture) {
 		glGenTextures(1, &t.color);
 		glBindTexture(GL_TEXTURE_2D, t.color);
@@ -467,9 +471,8 @@ void unpackColor(u32 c, float* out) { // PICA 0xAABBGGRR
 	out[2] = float((c >> 16) & 255) / 255.f; out[3] = float(c >> 24) / 255.f;
 }
 
-void bindTarget(Target* t) {
-	glBindFramebuffer(GL_FRAMEBUFFER, t ? t->fbo : 0);
-}
+void bindFramebuffer(GLuint fbo);
+void bindTarget(Target* t) { bindFramebuffer(t ? t->fbo : 0); }
 
 // The GL fixed-function state last applied; only differences are sent. Clears
 // and the present change GL state behind it: they invalidate the copy.
@@ -599,10 +602,18 @@ std::pair<uint32_t, uint32_t> indexRange(const void* indices, int count, int typ
 	if (lo > hi) lo = hi = 0;
 	return indexRanges[key] = {lo, hi + 1};
 }
+// glUs: time inside C3D_Draw* (state, uniforms, textures, vitaGL's draw);
+// the rest of the draw thread's work is the game's own (skinning, effects).
+// targetSwitches: framebuffer changes, each a new GXM scene. gpuTailUs: on
+// the report frame, how long the GPU ran on after the CPU presented.
 struct FrameStats {
-	unsigned frames = 0, draws = 0, copies = 0;
-	uint64_t copiedBytes = 0, beginWaitUs = 0, frameUs = 0, lastPresentUs = 0, swapUs = 0, workUs = 0, frameStartUs = 0;
+	unsigned frames = 0, draws = 0, copies = 0, targetSwitches = 0;
+	uint64_t copiedBytes = 0, beginWaitUs = 0, frameUs = 0, lastPresentUs = 0, swapUs = 0, workUs = 0, frameStartUs = 0, glUs = 0, gpuTailUs = 0;
 } stats;
+void bindFramebuffer(GLuint fbo) {
+	if (fbo != boundFramebuffer) { ++stats.targetSwitches; boundFramebuffer = fbo; }
+	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+}
 
 void prepareDraw(uint32_t firstVertex, uint32_t endVertex) {
 	FragmentKey key;
@@ -727,7 +738,7 @@ void collectGarbage() {
 }
 
 void present(Target* top) {
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	bindFramebuffer(0);
 	glViewport(0, 0, DisplayWidth, DisplayHeight);
 	glDisable(GL_SCISSOR_TEST); glDisable(GL_DEPTH_TEST); glDisable(GL_STENCIL_TEST);
 	glDisable(GL_CULL_FACE); glDisable(GL_BLEND);
@@ -838,13 +849,16 @@ void C3D_SetScissor(GPU_SCISSORMODE mode, u32 left, u32 top, u32 right, u32 bott
 }
 void C3D_DrawArrays(GPU_Primitive_t primitive, int first, int size) {
 	if (!state.target) return;
+	const uint64_t start = sceKernelGetProcessTimeWide();
 	prepareDraw(u32(first), u32(first + size));
 	++stats.draws;
 	recordDraw(u32(size), false);
 	glDrawArrays(glPrimitive(primitive), first, size);
+	stats.glUs += sceKernelGetProcessTimeWide() - start;
 }
 void C3D_DrawElements(GPU_Primitive_t primitive, int count, int type, const void* indices) {
 	if (!state.target || count <= 0) return;
+	const uint64_t start = sceKernelGetProcessTimeWide();
 	const size_t indexBytes = size_t(count) * (type == C3D_UNSIGNED_SHORT ? 2 : 1);
 	const bool indicesWritten = recentlyWritten(uintptr_t(indices), uintptr_t(indices) + indexBytes);
 	const auto range = indexRange(indices, count, type, indicesWritten);
@@ -860,6 +874,7 @@ void C3D_DrawElements(GPU_Primitive_t primitive, int count, int type, const void
 	vglBufferData(GL_ELEMENT_ARRAY_BUFFER, drawIndices);
 	glDrawElements(glPrimitive(primitive), count, type == C3D_UNSIGNED_SHORT ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, nullptr);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+	stats.glUs += sceKernelGetProcessTimeWide() - start;
 }
 
 // ---- Texture combiner -------------------------------------------------------------------
@@ -1056,7 +1071,7 @@ void C3D_RenderTargetSetOutput(C3D_RenderTarget* target, gfxScreen_t screen, gfx
 }
 void C3D_FrameBufClear(C3D_FrameBuf* fb, C3D_ClearBits clearBits, u32 clearColor, u32 clearDepth) {
 	Target* t = targetOfFrameBuf(fb);
-	glBindFramebuffer(GL_FRAMEBUFFER, t->fbo);
+	bindFramebuffer(t->fbo);
 	glDisable(GL_SCISSOR_TEST);
 	glViewport(0, 0, t->glWidth, t->glHeight);
 	GLbitfield bits = 0;
@@ -1115,7 +1130,15 @@ void C3D_FrameEnd(u8) {
 		if (stats.frameStartUs) stats.workUs += sceKernelGetProcessTimeWide() - stats.frameStartUs;
 		present(topOutput);
 		// Frame rate, draws and copies, every 300 presented frames.
-		const uint64_t now = sceKernelGetProcessTimeWide();
+		uint64_t now = sceKernelGetProcessTimeWide();
+		if (stats.frames == 299) {
+			// Once per report: wait for the frame just presented. A long wait
+			// means the GPU, not the draw thread, sets the frame rate.
+			glFinish();
+			const uint64_t finished = sceKernelGetProcessTimeWide();
+			stats.gpuTailUs = finished - now;
+			now = finished;
+		}
 		if (stats.lastPresentUs) {
 			stats.frameUs += now - stats.lastPresentUs;
 			const uint64_t frame = now - stats.lastPresentUs;
@@ -1133,6 +1156,9 @@ void C3D_FrameEnd(u8) {
 				stats.frameUs ? 299e6 / double(stats.frameUs) : 0.0, stats.draws / 300, stats.copies / 300,
 				unsigned(stats.copiedBytes / 300 / 1024), double(stats.beginWaitUs) / 300e3, double(stats.workUs) / 300e3,
 				double(stats.swapUs) / 300e3);
+			std::printf("c3dvita:   in draw calls %.2f ms (game work %.2f ms), %u target switches/frame, gpu tail %.2f ms\n",
+				double(stats.glUs) / 300e3, double(stats.workUs > stats.glUs ? stats.workUs - stats.glUs : 0) / 300e3,
+				stats.targetSwitches / 300, double(stats.gpuTailUs) / 1e3);
 			const uint64_t keep = stats.lastPresentUs;
 			stats = {};
 			stats.lastPresentUs = keep;
@@ -1154,6 +1180,7 @@ void C3D_SyncDisplayTransfer(u32* inadr, u32, u32* outadr, u32, u32) {
 	const int w = t->c3d.frameBuf.width, h = t->c3d.frameBuf.height;
 	std::vector<uint8_t> pixels(size_t(t->glWidth) * t->glHeight * 4);
 	glBindFramebuffer(GL_FRAMEBUFFER, t->fbo);
+	boundFramebuffer = ~0u;
 	glReadPixels(0, 0, t->glWidth, t->glHeight, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
 	state.targetDirty = true;
 	invalidateApplied();

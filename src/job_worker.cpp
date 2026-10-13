@@ -18,7 +18,13 @@ bool JobWorker::start(){
     // audio threads still preempt this one.
     if(!n3ds){u32 limit=0;APT_GetAppCpuTimeLimit(&limit);if(limit<80)APT_SetAppCpuTimeLimit(80);}
     s32 priority=0x30;svcGetThreadPriority(&priority,CUR_THREAD_HANDLE);
-    thread_=threadCreate(entry,this,32*1024,std::clamp<s32>(priority+(n3ds?0:1),0x1a,0x3f),n3ds?2:1,false);
+#ifdef __vita__
+    // The render thread takes the Vita's second core: jobs share the third with audio.
+    const int core=3;
+#else
+    const int core=n3ds?2:1;
+#endif
+    thread_=threadCreate(entry,this,32*1024,std::clamp<s32>(priority+(n3ds?0:1),0x1a,0x3f),core,false);
     return thread_!=nullptr;
 }
 void JobWorker::stop(){
