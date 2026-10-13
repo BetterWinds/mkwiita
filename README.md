@@ -1,8 +1,9 @@
 # Mario Kart Wii for PS Vita
 
-A native PlayStation Vita port of **Mario Kart Wii**, built from
-[MiniBandit's MKW-3DS](https://github.com/MiniBandit/MKW-3DS), the native
-Nintendo 3DS rewrite of the game.
+A native PlayStation Vita port of
+[MiniBandit's MKW-3DS](https://github.com/MiniBandit/MKW-3DS), a 1:1
+recreation of **Mario Kart Wii** for the Nintendo 3DS. It's a port of that
+3DS recreation, not of the Wii game: no Wii code runs.
 
 It isn't an emulator. The game runs natively on the Vita:
 - **Physics:** kart physics come from [Kinoko](https://github.com/vabold/Kinoko), a recreation of Mario Kart Wii's physics.
@@ -87,7 +88,7 @@ Details: [docs/VITA_PORT.md](docs/VITA_PORT.md).
 
 ## Credits
 
-- **dudewhat:** the original Mario Kart Wii 3DS port
+- **dudewhat:** the original Mario Kart Wii recreation for the 3DS
 - **MiniBandit:** [MKW-3DS](https://github.com/MiniBandit/MKW-3DS), the continuation this port is built on
 - [Kinoko](https://github.com/vabold/Kinoko) by vabold (MIT): Mario Kart Wii physics
 - [vitaGL](https://github.com/Rinnegatamante/vitaGL) and [vitaShaRK](https://github.com/Rinnegatamante/vitaShaRK) by Rinnegatamante: OpenGL and runtime shaders on the Vita

@@ -1,5 +1,8 @@
 # How the Vita port works
 
+This is a port of MKW-3DS, the 1:1 Nintendo 3DS recreation of Mario Kart Wii,
+not of the Wii game itself.
+
 MKW-3DS is written against libctru (the 3DS system library) and citro3d (its
 GPU library). This port leaves the game's code (`src/`, `include/`) almost
 untouched. It replaces those two libraries with Vita implementations in
