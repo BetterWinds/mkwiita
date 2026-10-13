@@ -2,6 +2,7 @@
 """Builds the Vita game files from your own Mario Kart Wii (USA) disc.
 
     .venv/Scripts/python tools/vita/build_assets.py <disc.iso|disc.wbfs>
+    .venv/Scripts/python tools/vita/build_assets.py --mipmaps --force-cook   (experimental mipmaps)
 
 Runs the CIA builder's disc and cook stages (tools/release/build_cia.py),
 then stages the result in build/vita/data/mkw. Copy that folder's contents
@@ -30,7 +31,12 @@ def main():
     p.add_argument('disc', nargs='?', type=Path, help='Mario Kart Wii (USA) ISO or WBFS (not needed once cooked)')
     p.add_argument('--jobs', type=int, default=max(1, (os.cpu_count() or 2) - 1))
     p.add_argument('--force-cook', action='store_true')
+    p.add_argument('--mipmaps', action='store_true',
+                   help='experimental: mip chains for the textures that had them on the Wii '
+                        '(use --force-cook when switching this on or off)')
     a = p.parse_args()
+    # The cook steps inherit it (tools/cook_model.py).
+    os.environ['MKW_MIPMAPS'] = '1' if a.mipmaps else '0'
     check_tools()
     build_cia.stage_sources()
     build_cia.stage_disc(a.disc)

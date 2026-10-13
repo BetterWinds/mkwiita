@@ -89,6 +89,8 @@ def main():
     p.add_argument('disc', nargs='?', type=Path, help='Mario Kart Wii (USA) ISO or WBFS (not needed once cooked)')
     p.add_argument('--skip-assets', action='store_true', help='only build the VPK')
     p.add_argument('--release', action='store_true', help='no test hooks or runtime log')
+    p.add_argument('--mipmaps', action='store_true', help='experimental texture mipmaps (see tools/vita/build_assets.py)')
+    p.add_argument('--force-cook', action='store_true', help='cook every asset again')
     a = p.parse_args()
     sys.path[:0] = [str(ROOT / 'tools')]
     sdk = vitasdk()
@@ -97,7 +99,8 @@ def main():
     ensure_tex3ds()
     run([sys.executable, 'tools/bootstrap.py'])
     if not a.skip_assets:
-        run([sys.executable, 'tools/vita/build_assets.py', *([a.disc] if a.disc else [])])
+        run([sys.executable, 'tools/vita/build_assets.py', *([a.disc] if a.disc else []),
+             *(['--mipmaps'] if a.mipmaps else []), *(['--force-cook'] if a.force_cook else [])])
     build = ROOT / 'build/vita'
     run(['cmake', '-G', 'Ninja', '-S', '.', '-B', build, '-DCMAKE_BUILD_TYPE=Release', f'-DMKW_RELEASE={"ON" if a.release else "OFF"}'])
     run(['cmake', '--build', build])

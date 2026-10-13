@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Convert pinned BRRES parser output into bounded, partitioned Citro3D meshes."""
-import argparse,hashlib,io,json,math,re,struct,subprocess,sys
+import argparse,hashlib,io,json,math,re,os,struct,subprocess,sys
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'vendor/gclib'))
@@ -32,9 +32,10 @@ def cook(source,out,prefix,max_texture=256,preserve_vertices=False,reuse_texture
    if not png.is_file() or Image.open(png).convert('RGBA').tobytes()!=im.tobytes():raise ValueError('Reusable texture content changed: '+str(png))
   else:im.save(png)
   alpha=im.getchannel('A').getextrema()[0]<255;fmt='etc1a4' if alpha else 'etc1'
-  # Mip chains where the Wii texture had them: distant surfaces filter
-  # instead of shimmering, and sample a smaller level.
-  mips=['-m','box'] if t.get('mipCount',1)>1 else []
+  # Experimental (MKW_MIPMAPS=1, build_assets.py --mipmaps): mip chains where
+  # the Wii texture had them, so distant surfaces filter instead of shimmering
+  # and sample a smaller level.
+  mips=['-m','box'] if os.environ.get('MKW_MIPMAPS')=='1' and t.get('mipCount',1)>1 else []
   if not reuse_textures:
    subprocess.run([str(tool('tex3ds')),'-f',fmt,'-q','high',*mips,'-z','none','-o',str(png.with_suffix('.t3x')),str(png)],check=True,stdout=subprocess.DEVNULL)
   elif not png.with_suffix('.t3x').is_file():raise ValueError('Missing reusable texture: '+str(png))
