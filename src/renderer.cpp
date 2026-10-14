@@ -211,13 +211,13 @@ bool Renderer::init(){
     if(!C3D_Init(0x100000))return false;
     deviceReady_=true;
     auto fail=[this](){shutdown();return false;};
-    target_=C3D_RenderTargetCreate(240,400,GPU_RB_RGBA8,GPU_RB_DEPTH24_STENCIL8);
+    target_=C3D_RenderTargetCreate(240,display::TargetHeight,GPU_RB_RGBA8,GPU_RB_DEPTH24_STENCIL8);
     if(!target_)return fail();
     C3D_RenderTargetSetOutput(target_,GFX_TOP,GFX_LEFT,TopTransfer);
     // libctru's gfxInit already allocates both top-screen eyes (800 rows) and
     // gfxSet3D only switches the display mode: the right eye adds this VRAM
     // target and no LINEAR. It is transferred only in frames that draw it.
-    if(stereoScreen(stereoDisplay_)&&(targetRight_=C3D_RenderTargetCreate(240,400,GPU_RB_RGBA8,GPU_RB_DEPTH24_STENCIL8)))
+    if(stereoScreen(stereoDisplay_)&&(targetRight_=C3D_RenderTargetCreate(240,display::TargetHeight,GPU_RB_RGBA8,GPU_RB_DEPTH24_STENCIL8)))
         C3D_RenderTargetSetOutput(targetRight_,GFX_TOP,GFX_RIGHT,TopTransfer);
     {C3D_Mtx tilt;Mtx_PerspTilt(&tilt,C3D_AngleFromDegrees(90.f),1.f,1.f,2.f,false);horizontalSign_=tilt.r[1].x<0?-1.f:1.f;}
     shader_=DVLB_ParseFile(reinterpret_cast<u32*>(const_cast<uint8_t*>(mkw_shader)),sizeof mkw_shader);if(!shader_)return fail();
@@ -261,7 +261,7 @@ bool Renderer::init(){
     C3D_TexSetFilter(&effectLookup_,GPU_NEAREST,GPU_NEAREST);C3D_TexSetWrap(&effectLookup_,GPU_CLAMP_TO_EDGE,GPU_CLAMP_TO_EDGE);
     effectDraw_=new EffectDrawState;
     std::memset(white_.data,255,8*8*4);C3D_TexFlush(&white_);
-    Mtx_PerspTilt(&projection_,C3D_AngleFromDegrees(55.f),C3D_AspectRatioTop,10.f,400000.f,false);
+    Mtx_PerspTilt(&projection_,C3D_AngleFromDegrees(55.f),display::Aspect,10.f,400000.f,false);
     mainProjection_=cullProjection_=projection_;
     ready_=true;return true;
 }
@@ -451,7 +451,7 @@ void Renderer::screenDepthNow(float parallax){
 void Renderer::beginFrame(){
     // The right eye repeats the left eye's buffer offsets: its sprites, text,
     // overlays, sparks and effect vertices reuse the data the left eye wrote.
-    screenWidth_=400.f;screenParallax_=0;
+    screenWidth_=display::Width;screenParallax_=0;
     spriteBase_=sprites_;spriteCapacity_=kSpriteCapacity;topSpriteCount_=0;bottomPass_=false;
     spriteCount_=0;spriteRunFirst_=0;spriteRunTexture_=nullptr;spriteStateReady_=false;
     menuIconDrawCount_=0;
@@ -477,7 +477,7 @@ void Renderer::beginFrame(){
             C3D_FrameSplit(GX_CMDLIST_FLUSH);
             C3D_RenderTargetClear(sceneTarget_,C3D_CLEAR_ALL,0x071326FF,0);
         }
-        C3D_FrameDrawOn(sceneTarget_);C3D_SetViewport(0,0,240,400);
+        C3D_FrameDrawOn(sceneTarget_);C3D_SetViewport(0,0,240,display::TargetHeight);
     }else C3D_FrameDrawOn(topTarget());
     C3D_BindProgram(&program_);
     C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER,projectionLoc_,&projection_);
@@ -532,7 +532,7 @@ void Renderer::drawAtScreenNow(const Model& model,const Vertex* vertices,const C
     const C3D_Mtx original=projection_;
     C3D_Mtx tilt;Mtx_PerspTilt(&tilt,C3D_AngleFromDegrees(90.f),1.f,1.f,2.f,false);
     const float vertical=(tilt.r[0].y<0?-1.f:1.f)*(120.f-y)/120.f;
-    const float horizontal=(tilt.r[1].x<0?-1.f:1.f)*(x-200.f)/200.f;
+    const float horizontal=(tilt.r[1].x<0?-1.f:1.f)*(x-display::CenterX)/display::CenterX;
     for(unsigned col=0;col<4;++col){
         projection_.r[0].c[col]=scaleY*original.r[0].c[col]+vertical*original.r[3].c[col];
         projection_.r[1].c[col]=scaleX*original.r[1].c[col]+horizontal*original.r[3].c[col];
@@ -557,7 +557,7 @@ void Renderer::drawMenuIconNow(const Model& model,const Vertex* vertices,const C
     const float layer=.9f+.0005f*float(std::min(menuIconDrawCount_++,128u));
     for(unsigned col=0;col<4;++col){
         projection_.r[0].c[col]*=(480.f/44.f)*(height/240.f);
-        projection_.r[1].c[col]*=(608.f/192.f)*(width/400.f);
+        projection_.r[1].c[col]*=(608.f/192.f)*(width/display::Width);
         // Captured-image panes composite in draw order, including the offset
         // shadow and OK glow of the same vehicle. Give each its own near-depth
         // interval while preserving all relative depth inside this machine.
@@ -574,8 +574,8 @@ void Renderer::drawMenuIconNow(const Model& model,const Vertex* vertices,const C
     const float x=q.x+(execStereo_.active()?(eye_?.5f:-.5f)*screenParallax_:0.f);
     const unsigned l=unsigned(std::clamp(std::floor(240.f-q.y-q.h),0.f,240.f));
     const unsigned r=unsigned(std::clamp(std::ceil(240.f-q.y),0.f,240.f));
-    const unsigned t=unsigned(std::clamp(std::floor(400.f-x-q.w),0.f,400.f));
-    const unsigned b=unsigned(std::clamp(std::ceil(400.f-x),0.f,400.f));
+    const unsigned t=unsigned(std::clamp(std::floor(display::Width-x-q.w),0.f,display::Width));
+    const unsigned b=unsigned(std::clamp(std::ceil(display::Width-x),0.f,display::Width));
     if(l<r&&t<b){
         C3D_SetScissor(GPU_SCISSOR_NORMAL,l,t,r,b);
         courseLighting_=false;menuIconLayer_=true;menuIconAlpha_=q.alpha;
@@ -1266,8 +1266,8 @@ void Renderer::cinemaBarsNow(float topHeight,float bottomHeight,float opacity){
     Vertex* vertices=reserveOverlay(12);
     const auto alpha=static_cast<uint8_t>(std::round(std::clamp(opacity,0.f,1.f)*255.f));
     auto rectangle=[&](int first,float top,float bottom){
-        const Vec3 positions[6]={{0,top,0},{400,top,0},{400,bottom,0},
-                                 {0,top,0},{400,bottom,0},{0,bottom,0}};
+        const Vec3 positions[6]={{0,top,0},{display::Width,top,0},{display::Width,bottom,0},
+                                 {0,top,0},{display::Width,bottom,0},{0,bottom,0}};
         for(int i=0;i<6;++i)vertices[first+i]={positions[i],{0,0,1},{0,0},{0,0},{0,0,0,alpha}};
     };
     if(!eye_){
@@ -1292,8 +1292,8 @@ void Renderer::screenFadeNow(float opacity,bool white){
     flushSprites();
     const auto alpha=static_cast<uint8_t>(std::round(std::clamp(opacity,0.f,1.f)*255.f));
     const uint8_t value=white?255:0;
-    const Vec3 positions[6]={{0,0,0},{400,0,0},{400,240,0},
-                             {0,0,0},{400,240,0},{0,240,0}};
+    const Vec3 positions[6]={{0,0,0},{display::Width,0,0},{display::Width,240,0},
+                             {0,0,0},{display::Width,240,0},{0,240,0}};
     Vertex* fade=reserveOverlay(6);
     if(!eye_){
         for(int i=0;i<6;++i)fade[i]={positions[i],{0,0,1},{0,0},{0,0},{value,value,value,alpha}};
@@ -1486,7 +1486,8 @@ void Renderer::requestBloomNow(const CourseBloom& settings){
 bool Renderer::initBloomTargets(){
     if(sceneTarget_)return true;
     if(bloomFailed_)return false;
-    // 240x400 scene in a 256x512 VRAM texture; 60x100 bright/blur buffers.
+    // The 240-unit-high scene (up to 512 wide) in a 256x512 VRAM texture;
+    // quarter-size bright/blur buffers (up to 64x128).
     bool ok=C3D_TexInitVRAM(&sceneTex_,256,512,GPU_RGBA8)&&
         (sceneTarget_=C3D_RenderTargetCreateFromTex(&sceneTex_,GPU_TEXFACE_2D,0,GPU_RB_DEPTH24_STENCIL8))!=nullptr;
     for(unsigned i=0;ok&&i<3;++i)
@@ -1550,13 +1551,16 @@ void Renderer::bloomQuad(const C3D_Tex& source,unsigned sourceWidth,unsigned sou
 void Renderer::applyBloomNow(){
     flushSprites();bloomFrame_=false;
     const auto& settings=*bloomSettings_;
+    // The canvas width and its quarter and eighth (the bloom buffers).
+    constexpr unsigned W=display::TargetHeight,W4=W/4,W8=W/8;
+    static_assert(W%8==0&&W<=512);
     auto pica=[](uint32_t rgba){return ((rgba>>24)&255)|((rgba>>8)&0xff00)|((rgba<<8)&0xff0000)|((rgba<<24)&0xff000000);};
     auto env=[](){C3D_TexEnvBufUpdate(C3D_Both,0);for(int i=0;i<6;++i)C3D_TexEnvInit(C3D_GetTexEnv(i));return C3D_GetTexEnv(0);};
     auto blend=[](bool add){C3D_AlphaBlend(GPU_BLEND_ADD,GPU_BLEND_ADD,GPU_ONE,add?GPU_ONE:GPU_ZERO,GPU_ONE,add?GPU_ONE:GPU_ZERO);};
     // USA EGG threshold filter: subtract the threshold constant, double with
     // scene alpha, then modulate by the original scene. Tint belongs to the
     // final composite, so coloured light can spread before being tinted.
-    bloomPass(bloomTarget_[0],100,60);
+    bloomPass(bloomTarget_[0],W4,60);
     auto* e0=env();C3D_TexEnvColor(e0,pica(bloomThresholdColor(settings)));
     C3D_TexEnvSrc(e0,C3D_Both,GPU_TEXTURE0,GPU_CONSTANT);C3D_TexEnvFunc(e0,C3D_Both,GPU_SUBTRACT);
     auto* e1=C3D_GetTexEnv(1);
@@ -1566,7 +1570,7 @@ void Renderer::applyBloomNow(){
     auto* e3=C3D_GetTexEnv(3);C3D_TexEnvColor(e3,0x40404040u);
     C3D_TexEnvSrc(e3,C3D_Both,GPU_PREVIOUS,GPU_CONSTANT);C3D_TexEnvFunc(e3,C3D_Both,GPU_MODULATE);
     constexpr float taps[4][2]={{-1,-1},{1,-1},{-1,1},{1,1}};
-    for(unsigned i=0;i<4;++i){blend(i>0);bloomQuad(sceneTex_,400,240,100,60,taps[i][0],taps[i][1]);}
+    for(unsigned i=0;i<4;++i){blend(i>0);bloomQuad(sceneTex_,W,240,W4,60,taps[i][0],taps[i][1]);}
     // EGG keeps a near band (8 taps) and a far band (8 + 16 taps). Reduced
     // quality halves spatial samples, doubling their weights to keep energy.
     // Radii are original low-resolution texels, converted to the 3DS canvas.
@@ -1585,15 +1589,15 @@ void Renderer::applyBloomNow(){
         for(unsigned i=0;i<count;++i){
             const auto& tap=BloomRing[i*(16/count)];blend(preserve||i>0);
             bloomQuad(bloomTex_[source],sourceWidth,sourceHeight,float(width),float(height),
-                tap[0]*radius*(400.f/608.f),tap[1]*radius*(240.f/456.f));
+                tap[0]*radius*display::MenuScaleX,tap[1]*radius*(240.f/456.f));
         }
     };
-    ring(0,100,60,1,100,60,0,0,false);
-    ring(1,100,60,2,50,30,1,0,false);
-    ring(1,100,60,2,50,30,1,1,true);
-    bloomPass(topTarget(),400,240);
+    ring(0,W4,60,1,W4,60,0,0,false);
+    ring(1,W4,60,2,W8,30,1,0,false);
+    ring(1,W4,60,2,W8,30,1,1,true);
+    bloomPass(topTarget(),W,240);
     e0=env();C3D_TexEnvSrc(e0,C3D_Both,GPU_TEXTURE0);C3D_TexEnvFunc(e0,C3D_Both,GPU_REPLACE);
-    blend(false);bloomQuad(sceneTex_,400,240,400,240,0,0);
+    blend(false);bloomQuad(sceneTex_,W,240,W,240,0,0);
     // Preserve the two authored composite weights and their alpha. Retail
     // output mode 1 selects blend preset 5: inverse-source-colour / one.
     e0=env();unsigned w0=unsigned(std::clamp(settings.weight[0],0.f,1.f)*255.f),w1=unsigned(std::clamp(settings.weight[1],0.f,1.f)*255.f);
@@ -1606,7 +1610,7 @@ void Renderer::applyBloomNow(){
     C3D_TexEnvSrc(e3,C3D_Both,GPU_PREVIOUS,GPU_CONSTANT);C3D_TexEnvFunc(e3,C3D_Both,GPU_MODULATE);
     C3D_TexBind(1,&bloomTex_[2]);
     C3D_AlphaBlend(GPU_BLEND_ADD,GPU_BLEND_ADD,GPU_ONE_MINUS_SRC_COLOR,GPU_ONE,GPU_ONE_MINUS_SRC_ALPHA,GPU_ONE);
-    bloomQuad(bloomTex_[1],100,60,400,240,0,0,50,30);
+    bloomQuad(bloomTex_[1],W4,60,W,240,0,0,W8,30);
     for(int unit=0;unit<3;++unit)C3D_TexBind(unit,nullptr);
     auto* env0=env();C3D_TexEnvSrc(env0,C3D_Both,GPU_TEXTURE0,GPU_PRIMARY_COLOR);C3D_TexEnvFunc(env0,C3D_Both,GPU_MODULATE);
     C3D_AlphaBlend(GPU_BLEND_ADD,GPU_BLEND_ADD,GPU_SRC_ALPHA,GPU_ONE_MINUS_SRC_ALPHA,GPU_ONE,GPU_ONE_MINUS_SRC_ALPHA);
@@ -1647,18 +1651,20 @@ bool Renderer::captureTop(uint8_t* rgb,unsigned eye){
     if(!ready_||!rgb||(eye&&!stereoShown_))return false;
     drain();
     C3D_RenderTarget* target=eye?targetRight_:target_;
-    u32* linear=static_cast<u32*>(linearAlloc(240*400*4));
+    // The 400 centre columns of a wider canvas: callers keep 400x240 captures.
+    constexpr unsigned H=display::TargetHeight,Off=(H-400)/2;
+    u32* linear=static_cast<u32*>(linearAlloc(240*H*4));
     if(!linear)return false;
     // Same orientation as the screen transfer, untiled RGBA8 output. Outside a
     // frame this waits for the queued frame before the copy.
-    C3D_SyncDisplayTransfer(static_cast<u32*>(target->frameBuf.colorBuf),GX_BUFFER_DIM(240,400),linear,GX_BUFFER_DIM(240,400),
+    C3D_SyncDisplayTransfer(static_cast<u32*>(target->frameBuf.colorBuf),GX_BUFFER_DIM(240,H),linear,GX_BUFFER_DIM(240,H),
         GX_TRANSFER_FLIP_VERT(0)|GX_TRANSFER_OUT_TILED(0)|GX_TRANSFER_RAW_COPY(0)|GX_TRANSFER_IN_FORMAT(GX_TRANSFER_FMT_RGBA8)|
         GX_TRANSFER_OUT_FORMAT(GX_TRANSFER_FMT_RGBA8)|GX_TRANSFER_SCALING(GX_TRANSFER_SCALE_NO));
-    GSPGPU_InvalidateDataCache(linear,240*400*4);
+    GSPGPU_InvalidateDataCache(linear,240*H*4);
     // Framebuffer column x holds 240 pixels from the bottom of the screen up.
     const uint8_t* bytes=reinterpret_cast<const uint8_t*>(linear);
     for(int y=0;y<240;++y)for(int x=0;x<400;++x){
-        const uint8_t* p=bytes+4*(x*240+(239-y));
+        const uint8_t* p=bytes+4*((x+Off)*240+(239-y));
         uint8_t* o=rgb+3*(y*400+x);
         o[0]=p[3];o[1]=p[2];o[2]=p[1];
     }

@@ -168,6 +168,10 @@ def cook_hud(root, output, manifest, sprite, image_sprite, digest):
     record = image_sprite(ink,"hud_ink",output)
     record.update(source=reft_path.relative_to(root).as_posix(), source_sha256=digest(reft_path), sourceTexture="gessoSumi2I4")
     extras["ink"] = record
+    # The chase icon (an item homing on the player): its ring and spinning light.
+    # Appended last so the earlier HudExtra indices never move.
+    extras["chase"] = sprite(ui/"timg/tt_chase_icon.tpl", "hud_chase", output)
+    extras["chase_light"] = sprite(ui/"timg/tt_chase_icon_light.tpl", "hud_chase_light", output)
     curves = [bytes.fromhex(c) for c in ink_effect["curves"]]
     ink_scale = next(c for c in curves if c[:4] == bytes.fromhex("ab180303"))
     ink_alpha = next(c for c in curves if c[:4] == bytes.fromhex("ab030001"))
@@ -179,11 +183,12 @@ def cook_hud(root, output, manifest, sprite, image_sprite, digest):
     scale = 240/456
     def group(control, variant_name, side):
         x, y, _, sx, sy = variant(ui/"ctrl"/(control+".brctr"), variant_name)
-        return ((x+416)*scale if side == "left" else 400-(416-x)*scale,
-                (228-y)*scale, sx*scale, sy*scale)
+        gx = (x+416)*scale if side == "left" else 400-(416-x)*scale if side == "right" else 200+x*scale
+        return (gx, (228-y)*scale, sx*scale, sy*scale)
     item = group("item_window_new", "CtrlRaceItemWindow_1_0", "left")
     lap = group("lap_number", "CtrlRaceLap_1_0", "right")
     rank = group("position", "CtrlRaceRankNum_1_0", "left")
+    chase = group("chase_icon", "chase_icon_1", "center")
     lp = layout(localized/"blyt/game_image_lap.brlyt")
     rp = layout(localized/"blyt/game_image_position.brlyt")
     rects = {}
@@ -201,6 +206,9 @@ def cook_hud(root, output, manifest, sprite, image_sprite, digest):
     rect("LapTotal", lap, lp["lap_riight"], lp["race_null"])
     rect("Rank", rank, rp["position"], rp["race_null"])
     rect("RankShadow", rank, rp["position_sha"], rp["race_null"])
+    cp = layout(ui/"blyt/chase_icon.brlyt")
+    rect("ChaseRing", chase, cp["base"], cp["chase_icon_null"])
+    rect("ChaseItem", chase, cp["item"], cp["chase_icon_null"])
 
     panes = layout(ui/"blyt/go.brlyt")
     duration, tracks = animation(ui/"anim/go_fade_in.brlan")
@@ -235,7 +243,7 @@ def cook_hud(root, output, manifest, sprite, image_sprite, digest):
     lines += ["}};",f"inline constexpr float HudInkHalfExtent={ink_effect['size'][0]:.8f}f;",
               f"inline constexpr float HudInkDepth={-ink_effect['translate'][2]:.8f}f;", "}", ""]
     (root/"include/mkw/race_hud_layout.hpp").write_text("\n".join(lines))
-    evidence = [ui/"ctrl/item_window_new.brctr",ui/"ctrl/lap_number.brctr",ui/"ctrl/position.brctr",
+    evidence = [ui/"ctrl/item_window_new.brctr",ui/"ctrl/lap_number.brctr",ui/"ctrl/position.brctr",ui/"ctrl/chase_icon.brctr",ui/"blyt/chase_icon.brlyt",
                 ui/"blyt/item_window.brlyt",localized/"blyt/game_image_lap.brlyt",localized/"blyt/game_image_position.brlyt",
                 ui/"blyt/go.brlyt",ui/"anim/go_fade_in.brlan",font]
     manifest["hudLayout"] = {"sourceCanvas":[832,456],"targetCanvas":[400,240],"uniformScale":scale,

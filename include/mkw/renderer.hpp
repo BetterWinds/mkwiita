@@ -1,6 +1,7 @@
 #pragma once
 #include <3ds.h>
 #include <citro3d.h>
+#include <mkw/display_layout.hpp>
 #include <atomic>
 #include <cstdint>
 #include <cstddef>
@@ -393,7 +394,7 @@ private:
     // This thread's camera (queries) and the drawing camera, equal in
     // immediate frames.
     C3D_Mtx mainView_{},mainProjection_{},cullProjection_{};
-    float mainScreenWidth_=400.f;
+    float mainScreenWidth_=display::Width;
     // Stereo: the console's display settings (read once on a 3D screen) and
     // the recording side's frame, slider and next subject.
     stereo::Display stereoDisplay_{};
@@ -455,7 +456,7 @@ private:
     // Right eye (VRAM, New 3DS with a 3D screen only; linked to GFX_RIGHT).
     C3D_RenderTarget* targetRight_=nullptr;
     C3D_RenderTarget* bottomTarget_=nullptr;
-    float screenWidth_=400.f;
+    float screenWidth_=display::Width;
     DVLB_s* shader_=nullptr;
     shaderProgram_s program_{};
     C3D_Mtx view_,projection_;

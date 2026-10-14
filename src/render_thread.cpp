@@ -351,7 +351,7 @@ void Renderer::releaseRetired(){
 
 // Recording side of the public calls (renderer.cpp holds the drawing side).
 void Renderer::setFov(float degrees){
-    fov_=std::clamp(degrees,1.f,170.f);Mtx_PerspTilt(&mainProjection_,C3D_AngleFromDegrees(fov_),C3D_AspectRatioTop,10.f,400000.f,false);
+    fov_=std::clamp(degrees,1.f,170.f);Mtx_PerspTilt(&mainProjection_,C3D_AngleFromDegrees(fov_),display::Aspect,10.f,400000.f,false);
     cullProjection_=mainProjection_;
     if(recording())command<ProjectionCommand>().projection=mainProjection_;
     else projection_=mainProjection_;
@@ -398,7 +398,7 @@ void Renderer::requestBloom(const CourseBloom& settings){
 void Renderer::begin(Vec3 eye,Vec3 target,Vec3 up){
     auto e=FVec3_New(eye.x,eye.y,eye.z),t=FVec3_New(target.x,target.y,target.z),u=FVec3_New(up.x,up.y,up.z);
     Mtx_LookAt(&mainView_,e,t,u,false);
-    mainScreenWidth_=400.f;
+    mainScreenWidth_=display::Width;
     beginStereo(length(target-eye));
     beginRecorded();
 }
@@ -439,7 +439,7 @@ void Renderer::beginSourceCamera(const float* view,const float* projection){
         mainProjection_.r[2].c[3-col]=projection[8+col];
         mainProjection_.r[3].c[3-col]=projection[12+col];
     }
-    mainScreenWidth_=400.f;
+    mainScreenWidth_=display::Width;
     // No target point: the stereo subject when set, else 1000 units.
     beginStereo(1000.f);
     beginRecorded();

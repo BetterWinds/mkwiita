@@ -4,6 +4,7 @@
 #include <mkw/race_grid.hpp>
 #include <mkw/race_items.hpp>
 #include <mkw/renderer.hpp>
+#include <game/kart/KartAction.hh>
 #include <game/kart/KartMove.hh>
 #include <game/kart/KartObjectManager.hh>
 #include <game/system/RaceConfig.hh>
@@ -56,7 +57,10 @@ struct RaceBottomScreen::Impl {
     // first use) and the racer face, alternating per frame (deferred frames).
     Texture miniMap;bool miniBuilt=false;
     float miniX0=0,miniZ0=0,miniScale=1,miniOx=0,miniOy=0,miniW=0,miniH=0;
-    Renderer::MaterialQuad miniQuad[2][2+12]{};
+    // The map, 12 faces and the player's rim, then the 10 timer panes.
+    Renderer::MaterialQuad miniQuad[2][2+12+10]{};
+    // Each face's spin (radians) while its racer is hit; the last tick seen.
+    std::array<float,12> miniSpin{};uint32_t miniTick=0;bool miniTicked=false;
     unsigned course=~0u;
     bool target=false;
     std::unique_ptr<Renderer::MaterialQuad[]> quads; // 2 x QuadCapacity, alternating per frame
@@ -99,8 +103,10 @@ void fillBottomView(BottomView& v,const RaceGrid& grid,const RaceItems& items,bo
     const auto& scenario=K::System::RaceConfig::Instance()->raceScenario();
     v.racers=std::min(grid.count(),12u);
     for(unsigned i=0;i<v.racers;++i){
-        const auto& p=K::Kart::KartObjectManager::Instance()->object(i)->pos();
+        const auto* kart=K::Kart::KartObjectManager::Instance()->object(i);
+        const auto& p=kart->pos();
         auto& r=v.racer[i];r.x=p.x;r.z=p.z;r.local=i==0;
+        r.hit=kart->action()->currentAction()!=K::Kart::Action::None;
         r.character=uint8_t(std::min<unsigned>(unsigned(scenario.players[i].character),23));
         r.rank=uint8_t(std::clamp(grid.rank(i),1u,12u));
         // The item window's picture (CtrlRaceItemWindow): a spinning roulette's
@@ -366,7 +372,7 @@ namespace {
 // The Wii's map: a thin, light, see-through road with a soft dark edge at the
 // right of the screen. It is rasterized once per course into a texture (one
 // translucent quad, so overlapping segments never double their alpha).
-constexpr float MiniCX=400.f-60.f,MiniCY=134.f,MiniW=92.f,MiniH=104.f;
+constexpr float MiniCX=display::Width-60.f,MiniCY=134.f,MiniW=92.f,MiniH=104.f;
 constexpr unsigned MiniTexture=256;
 constexpr float MiniRoad=1.6f,MiniEdge=0.9f; // half road width and edge, screen pixels
 constexpr float MiniFace=15.f,MiniOtherFace=11.f;
@@ -454,16 +460,55 @@ void RaceBottomScreen::drawMini(Renderer& renderer,const BottomView& view){
     for(unsigned i=0;i<std::min(view.racers,12u);++i){if(view.racer[i].local)local=&view.racer[i];else order[n++]=&view.racer[i];}
     std::sort(order.begin(),order.begin()+n,[](const BottomRacer* a,const BottomRacer* b){return a->rank>b->rank;});
     const float pad=MiniRoad+MiniEdge+1.f,aw=RaceMapAtlasSize[0],ah=RaceMapAtlasSize[1];
+    // A hit racer's face spins (the Wii's map does), one turn per 20 ticks;
+    // after the hit it finishes its turn and stops upright.
+    {
+        const unsigned elapsed=m.miniTicked?std::min<unsigned>(view.tick-m.miniTick,30u):0u;
+        m.miniTick=view.tick;m.miniTicked=true;
+        constexpr float Turn=2.f*float(M_PI),Step=Turn/20.f;
+        for(unsigned i=0;i<std::min(view.racers,12u);++i){
+            float& a=m.miniSpin[i];
+            for(unsigned t=0;t<elapsed;++t){
+                if(view.racer[i].hit)a=std::fmod(a+Step,Turn);
+                else if(a>0){a+=Step;if(a>=Turn)a=0;}
+            }
+        }
+    }
     unsigned count=1;
     auto face=[&](const BottomRacer& r,float size,bool rim){
         const float x=m.miniOx+pad+(r.x-m.miniX0)*m.miniScale,y=m.miniOy+pad+(r.z-m.miniZ0)*m.miniScale;
         const auto& art=RaceMapFaces[std::min<unsigned>(r.character,23)];
         const float u0=art.x/aw,u1=(art.x+art.w)/aw,v0=art.y/ah,v1=(art.y+art.h)/ah;
-        if(rim){const float h=size*.6f;set(quads[count++],x-h,y-h,x+h,y+h,u0,v0,u1,v1,0x000000ffu);}
-        const float h=size*.5f;set(quads[count++],x-h,y-h,x+h,y+h,u0,v0,u1,v1,0xffffffffu);
+        const float angle=m.miniSpin[std::size_t(&r-view.racer.data())],c=std::cos(angle),s=std::sin(angle);
+        auto quad=[&](float h,uint32_t color){
+            auto& q=quads[count++];set(q,0,0,0,0,u0,v0,u1,v1,color);
+            const float dx[4]={-h,h,-h,h},dy[4]={-h,-h,h,h};
+            for(unsigned k=0;k<4;++k){q.x[k]=x+dx[k]*c-dy[k]*s;q.y[k]=y+dx[k]*s+dy[k]*c;}
+        };
+        if(rim)quad(size*.6f,0x000000ffu);
+        quad(size*.5f,0xffffffffu);
     };
     for(unsigned i=0;i<n;++i)face(*order[i],MiniOtherFace,false);
     if(local)face(*local,MiniFace,true);
+    // CtrlRaceTime at the top right, the Wii's single-player place
+    // (time_number.brctr CtrlRaceTime_1: x 188, y 181, scale 1 on the 832x456
+    // canvas, right-anchored), above the lap counter (CtrlRaceLap_1_0).
+    if(view.timerVisible){
+        unsigned ms=view.milliseconds,minutes=ms/60000,seconds=ms/1000%60,milli=ms%1000;
+        if(minutes>99){minutes=99;seconds=59;milli=999;}
+        const unsigned digit[7]={minutes/10,minutes%10,seconds/10,seconds%10,milli/100,milli/10%10,milli%10};
+        const RaceMapRect* art[10]={&RaceMapDigits[digit[0]],&RaceMapDigits[digit[1]],&RaceMapColon,&RaceMapDigits[digit[2]],&RaceMapDigits[digit[3]],
+                                    &RaceMapDot,&RaceMapDigits[digit[4]],&RaceMapDigits[digit[5]],&RaceMapDigits[digit[6]],&RaceMapTimeLabel};
+        constexpr float S=240.f/456.f;
+        const float ox=display::Width-(416.f-188.f)*S,oy=(228.f-181.f)*S;
+        for(unsigned i=0;i<10;++i){
+            const auto& p=RaceTimerPanes[i];const auto& r=*art[i];
+            const float x=ox+p.x*S,y=oy-p.y*S,hw=p.w*.5f*S,hh=p.h*.5f*S;
+            auto& q=quads[count++];
+            set(q,x-hw,y-hh,x+hw,y+hh,r.x/aw,r.y/ah,(r.x+r.w)/aw,(r.y+r.h)/ah,0xffffffffu);
+            for(unsigned k=0;k<4;++k)q.color[k]=TimerGold[k];
+        }
+    }
     renderer.drawScreenMaterialQuadsInPlace(&m.atlas,quads+1,count-1,0x00000000u,0xffffffffu);
 }
 }

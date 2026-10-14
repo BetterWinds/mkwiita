@@ -50,13 +50,21 @@ static int lazyUid(volatile int& state, int& uid, Create create) {
 	while (s->load(std::memory_order_acquire) != 2) sceKernelDelayThread(10);
 	return uid;
 }
-static int lockUid(LightLock* lock) {
-	return lazyUid(lock->state, lock->uid, [] { return sceKernelCreateMutex("mkw_lock", 0, 0, nullptr); });
+// LightLock is a lightweight mutex: an uncontended lock or unlock stays in
+// user space. (A kernel mutex costs a system call each time; the drawing
+// thread takes several locks per draw.) Its work area lives on the heap,
+// its address in uid.
+static SceKernelLwMutexWork* lockWork(LightLock* lock) {
+	return reinterpret_cast<SceKernelLwMutexWork*>(lazyUid(lock->state, lock->uid, [] {
+		auto* work = new SceKernelLwMutexWork{};
+		sceKernelCreateLwMutex(work, "mkw_lock", 0, 0, nullptr);
+		return int(reinterpret_cast<uintptr_t>(work));
+	}));
 }
-extern "C" void LightLock_Init(LightLock* lock) { lock->state = 0; lock->uid = 0; lockUid(lock); }
-extern "C" void LightLock_Lock(LightLock* lock) { sceKernelLockMutex(lockUid(lock), 1, nullptr); }
-extern "C" int LightLock_TryLock(LightLock* lock) { return sceKernelTryLockMutex(lockUid(lock), 1) < 0 ? 1 : 0; }
-extern "C" void LightLock_Unlock(LightLock* lock) { sceKernelUnlockMutex(lockUid(lock), 1); }
+extern "C" void LightLock_Init(LightLock* lock) { lock->state = 0; lock->uid = 0; lockWork(lock); }
+extern "C" void LightLock_Lock(LightLock* lock) { sceKernelLockLwMutex(lockWork(lock), 1, nullptr); }
+extern "C" int LightLock_TryLock(LightLock* lock) { return sceKernelTryLockLwMutex(lockWork(lock), 1) < 0 ? 1 : 0; }
+extern "C" void LightLock_Unlock(LightLock* lock) { sceKernelUnlockLwMutex(lockWork(lock), 1); }
 
 static int recursiveUid(RecursiveLock* lock) {
 	return lazyUid(lock->state, lock->uid, [] { return sceKernelCreateMutex("mkw_rlock", SCE_KERNEL_MUTEX_ATTR_RECURSIVE, 0, nullptr); });

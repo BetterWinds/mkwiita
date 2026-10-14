@@ -22,6 +22,7 @@ struct BottomRacer {
     uint8_t rank=12;          // current position, 1..12
     uint8_t item=20;          // held item icon (ItemKind; 20 none)
     bool local=false;
+    bool hit=false;           // in a damage action (spin, tumble, blast, crush)
 };
 struct BottomItem {
     float x=0,z=0;

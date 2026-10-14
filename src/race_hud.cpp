@@ -207,6 +207,8 @@ struct RaceHud::Impl {
     unsigned balloonTick=0;
     std::array<Texture,24> names;
     Texture balloonLine;
+    // The chase icon (chase_icon.brlyt): the item shown, its fade and its loop frame.
+    struct Chase { ItemKind kind=ItemKind::None;float alpha=0;unsigned loop=0,lastTick=0;bool started=false; } chase;
 };
 RaceHud::RaceHud():impl_(std::make_unique<Impl>()){}
 RaceHud::~RaceHud()=default;
@@ -263,7 +265,9 @@ bool RaceHud::load(){
     if(impl_->models[3])bakeMaskUv(*impl_->models[3],FakeBoxMaterials);
     for(unsigned i=1;i<=12;++i)valid&=impl_->ranks[i].load(HudRanks[i].path);
     for(unsigned i=0;i<10;++i)valid&=impl_->digits[i].load(HudDigits[i].path);
-    for(unsigned i=0;i<HudExtraCount;++i)valid&=impl_->extras[i].load(HudExtras[i].path);
+    // The chase icon's textures came after the first releases of the game
+    // files: without them the HUD still loads, only without the chase icon.
+    for(unsigned i=0;i<HudExtraCount;++i){const bool ok=impl_->extras[i].load(HudExtras[i].path);if(i<HudChase)valid&=ok;}
     for(unsigned i=0;i<BalloonNames.size();++i)valid&=impl_->names[i].load(BalloonNames[i].path);
     valid&=impl_->balloonLine.load(BalloonLinePath);
     return valid;
@@ -466,7 +470,7 @@ void RaceHud::drawOverlay(Renderer& renderer,const RaceItems& items,unsigned sta
             // projected with the active native camera. Source growth/fade450f.
             const float fullSize=240.f*HudInkHalfExtent/(HudInkDepth*std::tan(renderer.fov()*3.14159265358979323846f/360.f));
             const float w=fullSize*ink.scaleX,h=fullSize*ink.scaleY;
-            sprite(impl_->extras[HudInk],HudExtras[HudInk],{200-w/2,120-h/2,w,h},ink.alpha,0x000000ffu);
+            sprite(impl_->extras[HudInk],HudExtras[HudInk],{display::CenterX-w/2,120-h/2,w,h},ink.alpha,0x000000ffu);
         }
     }
     // Original single-player BRCTR corner anchors and BRLYT pane sizes. 3DS is
@@ -485,7 +489,7 @@ void RaceHud::drawOverlay(Renderer& renderer,const RaceItems& items,unsigned sta
         std::array<Seen,12> seen{};
         for(unsigned i=0;i<count;++i){
             auto& s=seen[i];
-            s.ok=renderer.projectTop(anchor(i),s.x,s.y,s.z)&&s.z<=0&&s.z>=-7500.f&&s.x>=0&&s.x<=400;
+            s.ok=renderer.projectTop(anchor(i),s.x,s.y,s.z)&&s.z<=0&&s.z>=-7500.f&&s.x>=0&&s.x<=display::Width;
         }
         if(stage<2){
             for(auto& b:bs)b.racer=-1;
@@ -597,10 +601,50 @@ void RaceHud::drawOverlay(Renderer& renderer,const RaceItems& items,unsigned sta
             }
         }
     }
+    // Chase icon (chase_icon.brctr chase_icon_1, bottom centre): a Red or Blue
+    // Shell homing on the player within 6000 units, the rule of the targeted
+    // warning sound (race_audio.cpp itemAlarm); the nearest one is shown.
+    {
+        auto& c=impl_->chase;
+        ItemKind incoming=ItemKind::None;
+        if(stage>=2&&!finished)if(const auto* me=Kinoko::Kart::KartObjectManager::Instance()->object(0)){
+            const auto& p=me->pos();float nearest=6000.f;
+            for(const auto& a:items.actors()){
+                if(!a.active||a.explosion||a.scattered||a.target!=0)continue;
+                if(a.kind!=ItemKind::RedShell&&a.kind!=ItemKind::BlueShell)continue;
+                const Vec3 q=a.visualPosition();
+                const float dx=q.x-p.x,dy=q.y-p.y,dz=q.z-p.z,d=std::sqrt(dx*dx+dy*dy+dz*dz);
+                if(d<=nearest){nearest=d;incoming=a.kind;}
+            }
+        }
+        // chase_icon_off_to_on: alpha 0 to 255 over 5 frames; chase_icon_off: 0 at once.
+        // chase_icon_light_roop loops every 20 frames.
+        const unsigned elapsed=c.started?std::min(tick-c.lastTick,30u):0u;
+        c.lastTick=tick;c.started=true;
+        for(unsigned e=0;e<elapsed;++e){++c.loop;c.alpha=incoming!=ItemKind::None?std::min(1.f,c.alpha+.2f):0.f;}
+        if(incoming!=ItemKind::None)c.kind=incoming;
+        const auto& ring=impl_->extras[HudChase];
+        if(c.alpha>0&&ring.ready&&c.kind!=ItemKind::None){
+            const float dx=display::WideExtra*.5f,frame=float(c.loop%20);
+            // hilight RLPA rotate 0..360; item RLPA scale 1, 1.2, 1 (zero slopes).
+            const float angle=frame/20.f*2.f*float(M_PI);
+            const float t=frame<10?frame/10.f:(20.f-frame)/10.f,pulse=1.f+.2f*t*t*(3.f-2.f*t);
+            // Materials: base lerps black to (255,255,183); hilight is red.
+            renderer.drawScreenFontSprite(ring,HudChaseRing.x+dx,HudChaseRing.y,HudChaseRing.w,HudChaseRing.h,
+                                          HudExtras[HudChase].u,HudExtras[HudChase].v,c.alpha,0xffffffffu,0xffffffffu,0x00000000u,0xffffb7ffu);
+            renderer.drawScreenSpriteRegion(impl_->extras[HudChaseLight],HudChaseRing.x+dx,HudChaseRing.y,HudChaseRing.w,HudChaseRing.h,
+                                            0,0,HudExtras[HudChaseLight].u,HudExtras[HudChaseLight].v,c.alpha,0xff0000ffu,nullptr,false,angle);
+            const auto kind=std::min(unsigned(c.kind),20u);
+            const float w=HudChaseItem.w*pulse,h=HudChaseItem.h*pulse;
+            const float cx=HudChaseItem.x+HudChaseItem.w*.5f+dx,cy=HudChaseItem.y+HudChaseItem.h*.5f;
+            renderer.drawScreenSpriteRegion(impl_->icons[kind],cx-w*.5f,cy-h*.5f,w,h,0,0,HudItems[kind].u,HudItems[kind].v,c.alpha,0xffffffffu);
+        }
+    }
     // CtrlRaceLap init (0x807e53d8) tints all four lap panes with the slot colour.
     // CtrlRaceLap_1_0 (y 133, scale 0.8) leaves upward.
     const float lapLift=exitLift(.8f);
-    auto lifted=[&](HudRect r,float dy){r.y+=dy;return r;};
+    // The lap counter is right-anchored: it keeps its corner on a wider canvas.
+    auto lifted=[&](HudRect r,float dy){r.x+=display::WideExtra;r.y+=dy;return r;};
     gold(impl_->extras[HudLap],HudExtras[HudLap],lifted(HudLapLabel,-lapLift));gold(impl_->extras[HudSlash],HudExtras[HudSlash],lifted(HudLapSlash,-lapLift));
     lap=std::clamp(lap,1u,3u);
     gold(impl_->digits[lap],HudDigits[lap],lifted(HudLapCurrent,-lapLift));
@@ -611,7 +655,7 @@ void RaceHud::drawOverlay(Renderer& renderer,const RaceItems& items,unsigned sta
     if(speedometer)if(const auto* kart=Kinoko::Kart::KartObjectManager::Instance()->object(0)){
         const unsigned speed=std::min(999u,unsigned(std::lround(std::abs(kart->move()->speed()))));
         char text[4];const int n=std::snprintf(text,sizeof text,"%u",speed);
-        constexpr float Size=22,Advance=15,Right=392,Top=194;
+        constexpr float Size=22,Advance=15,Right=392+display::WideExtra,Top=194;
         const float lift=exitLift(1.f);
         for(int i=0;i<n;++i){const unsigned d=unsigned(text[i]-'0');gold(impl_->digits[d],HudDigits[d],{Right-Size-float(n-1-i)*Advance,Top+lift,Size,Size});}
         renderer.drawScreenText("KM/H",Right-26,Top+Size+3+lift,1.f,0xffffffffu);
@@ -662,7 +706,7 @@ void RaceHud::drawOverlay(Renderer& renderer,const RaceItems& items,unsigned sta
         for(const auto& layer:HudCountFrames[std::min(frame,unsigned(HudCountFrames.size()-1))]){
             if(layer.alpha<=0||layer.scale<=0)continue;
             const float width=art.w*layer.scale,height=art.h*layer.scale;
-            renderer.drawScreenFontSprite(impl_->extras[which],200+layer.x-width/2,120+layer.y-height/2,
+            renderer.drawScreenFontSprite(impl_->extras[which],display::CenterX+layer.x-width/2,120+layer.y-height/2,
                                           width,height,art.u,art.v,layer.alpha,layer.top,layer.bottom,layer.color0,layer.color1);
         }
         renderer.setScreenDepth(hudDepth);

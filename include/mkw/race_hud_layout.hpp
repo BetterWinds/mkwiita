@@ -12,6 +12,8 @@ inline constexpr HudRect HudLapSlash{344.55410918f,41.08186086f,16.84210551f,16.
 inline constexpr HudRect HudLapTotal{354.31578471f,43.42230295f,13.47368441f,13.47368441f};
 inline constexpr HudRect HudRank{23.26315736f,165.26315739f,75.78947481f,53.89473765f};
 inline constexpr HudRect HudRankShadow{18.21052450f,171.15789432f,75.78947481f,53.89473765f};
+inline constexpr HudRect HudChaseRing{173.05263118f,187.78947328f,53.89473765f,53.89473765f};
+inline constexpr HudRect HudChaseItem{183.15789474f,197.89473684f,33.68421053f,33.68421053f};
 struct HudCountLayer {float x,y,scale,alpha;uint32_t top,bottom,color0,color1;};
 inline constexpr std::array<std::array<HudCountLayer,3>,70> HudCountFrames{{
     {{{-1.05263158f,-1.57894737f,47.36842105f,0.00000000f,0xf2ff00ffu,0xffffffffu,0x1c1c1c00u,0xffffffffu},{-1.05263183f,-1.57894699f,47.36842105f,0.93333333f,0xf2ff00ffu,0xffe10000u,0x46464600u,0xff898900u},{1.57894712f,-2.10526278f,0.00000000f,0.00000000f,0xffffffffu,0xffffffffu,0xffffff00u,0xffffffffu}}},

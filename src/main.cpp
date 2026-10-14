@@ -210,9 +210,9 @@ static void drawMenuBackdrop(mkw::Renderer& renderer,mkw::MenuRenderer& menuRend
     if(parallax==0||quads.empty()){menuRenderer.draw(renderer,quads,false,0,1);return;}
     static std::vector<mkw::UiQuad> backdrop(1);
     backdrop[0]=quads[0];auto& q=backdrop[0];
-    if(q.x<=0&&q.x+q.w>=400){
-        const float grow=(400.f+std::fabs(parallax))/400.f;
-        q.x=200.f+(q.x-200.f)*grow;q.y=120.f+(q.y-120.f)*grow;q.w*=grow;q.h*=grow;
+    if(q.x<=0&&q.x+q.w>=mkw::display::Width){
+        const float grow=(mkw::display::Width+std::fabs(parallax))/mkw::display::Width;
+        q.x=mkw::display::CenterX+(q.x-mkw::display::CenterX)*grow;q.y=120.f+(q.y-120.f)*grow;q.w*=grow;q.h*=grow;
     }
     renderer.setScreenDepth(parallax);
     menuRenderer.draw(renderer,backdrop,false,0,1);
@@ -2036,8 +2036,8 @@ int main() {
                 if(timeTrial&&courseChoice<bestTimes.size()&&!results.hudGone()){
                     // Best time under the lap counter; NEW RECORD! once beaten.
                     char best[32];if(bestTimes[courseChoice]){char t[16];formatTime(t,sizeof t,bestTimes[courseChoice]);snprintf(best,sizeof best,"BEST %s",t);}else snprintf(best,sizeof best,"BEST -:--.---");
-                    renderer.drawScreenText(best,392-6*float(std::strlen(best)),62,1.f,0xffffffffu);
-                    if(newRecord)renderer.drawScreenText("NEW RECORD!",200-33*2,84,2.f,0xffe040ffu);
+                    renderer.drawScreenText(best,392+mkw::display::WideExtra-6*float(std::strlen(best)),62,1.f,0xffffffffu);
+                    if(newRecord)renderer.drawScreenText("NEW RECORD!",mkw::display::CenterX-33*2,84,2.f,0xffe040ffu);
                 }}
             renderer.setScreenDepth(renderer.stereoLayer(mkw::stereo::HudLayer));
             if(fullRace)flowUi.drawResults(renderer,results);

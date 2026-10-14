@@ -249,8 +249,8 @@ void MenuModels::draw(Renderer& renderer,const MenuState& state,const UiTransiti
         const float scale=scales[shownBackground_]*unit;Mtx_Scale(&matrix,scale,scale,scale);
         if(!rigid||pose.palette){
             if(rigid)renderer.setRigidPose(&pose);
-            renderer.drawAtScreen(*background->model,matrix,200.f+80.f*400.f/608.f,120.f,
-                                 100.f/255.f,2.f*400.f/832.f,display::Height/240.f);
+            renderer.drawAtScreen(*background->model,matrix,display::CenterX+80.f*display::MenuScaleX,120.f,
+                                 100.f/255.f,2.f*display::WideScaleX,display::Height/240.f);
             renderer.setRigidPose(nullptr);
         }
         renderMetrics.drawMs+=float((svcGetSystemTick()-t2)*1000.0/SYSCLOCK_ARM11);
@@ -268,7 +268,7 @@ void MenuModels::draw(Renderer& renderer,const MenuState& state,const UiTransiti
         // horizontal scale to 608/832 before the 608x456 UI reaches the LCD.
         C3D_Mtx matrix;Mtx_Identity(&matrix);
         const auto placement=uiMenuModelPlacement(state.page,motion);
-        const float x=200.f+placement.x*400.f/608.f;
+        const float x=display::CenterX+placement.x*display::MenuScaleX;
         const float y=120.f-placement.y*display::MenuScaleY;
         constexpr unsigned ids[]={0,1,2,6,7,8,3,4,5,9,10,11};
         const unsigned weight=UiCharacters[driverId].weight,vehicle=ids[choice]*3+weight;
@@ -278,16 +278,16 @@ void MenuModels::draw(Renderer& renderer,const MenuState& state,const UiTransiti
         // Retail Update builds Euler Y=(90+rotation)*2*pi/720.
         Mtx_RotateY(&matrix,3.14159265359f/4.f,true);
         Mtx_Scale(&matrix,scale,scale,scale);
-        renderer.drawAtScreen(*machine->model,matrix,x,y,1.f,2.f*400.f/832.f*placement.scale,2.f*display::MenuScaleY*placement.scale);
+        renderer.drawAtScreen(*machine->model,matrix,x,y,1.f,2.f*display::WideScaleX*placement.scale,2.f*display::MenuScaleY*placement.scale);
         const auto& seat=MenuSeats[driverId][choice];Mtx_Translate(&matrix,0,seat.y,seat.z,true);
-        renderer.drawAtScreen(*driver->model,matrix,x,y,1.f,2.f*400.f/832.f*placement.scale,2.f*display::MenuScaleY*placement.scale);
+        renderer.drawAtScreen(*driver->model,matrix,x,y,1.f,2.f*display::WideScaleX*placement.scale,2.f*display::MenuScaleY*placement.scale);
     }else if(state.page==UiPage::Character) {
         C3D_Mtx matrix;Mtx_Identity(&matrix);
         Mtx_Translate(&matrix,0.f,-150.f,-15.f,true);Mtx_Scale(&matrix,1.6f,1.6f,1.6f);
         const auto placement=uiMenuModelPlacement(state.page,motion);
-        renderer.drawAtScreen(*driver->model,matrix,200.f+placement.x*400.f/608.f,
+        renderer.drawAtScreen(*driver->model,matrix,display::CenterX+placement.x*display::MenuScaleX,
                               120.f-placement.y*display::MenuScaleY,1.f,
-                              2.f*400.f/832.f*placement.scale,2.f*display::MenuScaleY*placement.scale);
+                              2.f*display::WideScaleX*placement.scale,2.f*display::MenuScaleY*placement.scale);
     }
 }
 }

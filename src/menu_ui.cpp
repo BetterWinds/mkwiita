@@ -13,7 +13,7 @@
 
 namespace mkw {
 namespace {
-constexpr float XScale=400.f/608.f,YScale=display::MenuScaleY;
+constexpr float XScale=display::MenuScaleX,YScale=display::MenuScaleY;
 constexpr const char* CupNames[]={"Mushroom Cup","Flower Cup","Star Cup","Special Cup","Shell Cup","Banana Cup","Leaf Cup","Lightning Cup"};
 constexpr const char* CourseNames[]={"Luigi Circuit","Moo Moo Meadows","Mushroom Gorge","Toad's Factory","Mario Circuit","Coconut Mall","DK Summit","Wario's Gold Mine","Daisy Circuit","Koopa Cape","Maple Treeway","Grumble Volcano","Dry Dry Ruins","Moonview Highway","Bowser's Castle","Rainbow Road","GCN Peach Beach","DS Yoshi Falls","SNES Ghost Valley 2","N64 Mario Raceway","N64 Sherbet Land","GBA Shy Guy Beach","DS Delfino Square","GCN Waluigi Stadium","DS Desert Hills","GBA Bowser Castle 3","N64 DK's Jungle Parkway","GCN Mario Circuit","SNES Mario Circuit 3","DS Peach Gardens","GCN DK Mountain","N64 Bowser's Castle"};
 struct Pose {
@@ -113,10 +113,10 @@ public:
   }
   alpha=sourceAlpha(alpha,controlAlpha);
   if(alpha<=0)return;
-  x=200+x*XScale;y=120+y*YScale;w*=XScale;h*=YScale;
+  x=display::CenterX+x*XScale;y=120+y*YScale;w*=XScale;h*=YScale;
   // Source layouts deliberately bleed beyond the projection; crop their UVs,
   // never squeeze a complete pane into the remaining visible screen space.
-  float l=std::max(x,0.f),t=std::max(y,7.5f),r=std::min(x+w,400.f),b=std::min(y+h,232.5f);
+  float l=std::max(x,0.f),t=std::max(y,7.5f),r=std::min(x+w,display::Width),b=std::min(y+h,232.5f);
   if(r<=l||b<=t)return;
   out.push_back({i,l,t,r-l,b-t,alpha,tint,false,(l-x)/w,(t-y)/h,(r-x)/w,(b-y)/h});
  }

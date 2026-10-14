@@ -1,4 +1,5 @@
 #include <mkw/race_flow_draw.hpp>
+#include <mkw/display_layout.hpp>
 #include <mkw/race_flow_layout.hpp>
 #include <mkw/race_flow_pose.hpp>
 #include <mkw/race_results.hpp>
@@ -32,7 +33,7 @@ struct Placement {float x,y,sx,sy;};
 
 void place(const FlowPanePose& pane,const Placement& at,float lx,float ly,float& sx,float& sy){
  const float x=pane.m[0]*lx+pane.m[1]*ly+pane.m[2],y=pane.m[3]*lx+pane.m[4]*ly+pane.m[5];
- sx=200.f+(at.x+x*at.sx)*Unit;sy=120.f-(at.y+y*at.sy)*Unit;
+ sx=display::CenterX+(at.x+x*at.sx)*Unit;sy=120.f-(at.y+y*at.sy)*Unit;
 }
 
 // NW4R picture pane: origin-relative rectangle, texcoords through the

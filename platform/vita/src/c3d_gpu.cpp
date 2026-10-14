@@ -285,6 +285,7 @@ void applyParams(GpuTexture& t, const C3D_Tex& tex) {
 }
 
 GLuint boundTexture[3] = {~0u, ~0u, ~0u};
+void flushClearOfTexture(GLuint color);
 // Binds tex to a unit, uploading its data first when it changed.
 void bindTexture(int unit, const C3D_Tex* tex) {
 	LightLock_Lock(&textureLock);
@@ -293,6 +294,13 @@ void bindTexture(int unit, const C3D_Tex* tex) {
 		LightLock_Unlock(&textureLock);
 		if (boundTexture[unit] != 0) { glActiveTexture(GL_TEXTURE0 + unit); glBindTexture(GL_TEXTURE_2D, 0); boundTexture[unit] = 0; }
 		return;
+	}
+	if (t->renderTarget && t->gl) {
+		// A target sampled before it is drawn again still owes its clear.
+		const GLuint gl = t->gl;
+		LightLock_Unlock(&textureLock);
+		flushClearOfTexture(gl);
+		LightLock_Lock(&textureLock);
 	}
 	if (!t->dirty && t->gl && boundTexture[unit] == t->gl && t->appliedParam == tex->param) { LightLock_Unlock(&textureLock); return; }
 	glActiveTexture(GL_TEXTURE0 + unit);
@@ -321,6 +329,12 @@ struct Target {
 	GLuint fbo = 0, color = 0, depth = 0;
 	bool ownsColor = true;
 	int glWidth = 0, glHeight = 0;
+	// A clear waiting for the target's next use (C3D_FrameBufClear): done
+	// inside the scene that draws it rather than in a scene of its own.
+	GLbitfield pendingClear = 0;
+	float clearColor[4] = {};
+	float clearDepth = 1.f;
+	int clearStencil = 0;
 };
 Target* targetOf(C3D_RenderTarget* t) { return reinterpret_cast<Target*>(t); }
 Target* targetOfFrameBuf(C3D_FrameBuf* fb) {
@@ -388,6 +402,9 @@ std::vector<std::string> frameDetails;
 unsigned dumpsWritten = 0;
 bool gpuTrace = false; // ux0:data/mkw/gpu-trace.txt (checked at start-up)
 bool gpuSync = false;  // ux0:data/mkw/gpu-sync.txt: wait for the GPU every frame
+// ux0:data/mkw/profile.txt: time each part of a draw and, once per report,
+// wait for the GPU (a one-frame hitch every 300 frames).
+bool profile = false;
 bool dumpThisFrame() { return gpuTrace && dumpsWritten < 6 && frameNumber % 600 == 0; }
 inline float reg(int r, int c) { const C3D_FVec& v = C3D_FVUnif[0][r]; return c == 0 ? v.x : c == 1 ? v.y : c == 2 ? v.z : v.w; }
 void recordDraw(uint32_t count, bool elements, const void* indices = nullptr, int indexType = 1) {
@@ -488,8 +505,11 @@ struct AppliedState {
 } applied;
 void invalidateApplied() { applied.valid = false; for (auto& t : boundTexture) t = ~0u; }
 
+void flushClear(Target* t);
 void applyFixedState() {
 	AppliedState& a = applied;
+	// Binds the target and clears it; the clear's state changes invalidate a.
+	if (state.target && state.target->pendingClear) flushClear(state.target);
 	const bool all = !a.valid;
 	if (state.targetDirty || all || a.target != state.target) { bindTarget(state.target); state.targetDirty = false; a.target = state.target; }
 	if (all || std::memcmp(a.viewport, state.viewport, sizeof a.viewport)) {
@@ -609,10 +629,40 @@ std::pair<uint32_t, uint32_t> indexRange(const void* indices, int count, int typ
 struct FrameStats {
 	unsigned frames = 0, draws = 0, copies = 0, targetSwitches = 0;
 	uint64_t copiedBytes = 0, beginWaitUs = 0, frameUs = 0, lastPresentUs = 0, swapUs = 0, workUs = 0, frameStartUs = 0, glUs = 0, gpuTailUs = 0;
+	// profile.txt only: prepareDraw's parts and vitaGL's draw call.
+	uint64_t uniformUs = 0, textureUs = 0, stateUs = 0, attributeUs = 0, drawUs = 0;
 } stats;
+inline uint64_t profileNow() { return profile ? sceKernelGetProcessTimeWide() : 0; }
 void bindFramebuffer(GLuint fbo) {
 	if (fbo != boundFramebuffer) { ++stats.targetSwitches; boundFramebuffer = fbo; }
 	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+}
+// Each bind-and-clear is a GXM scene that stores the whole target: a clear
+// done on its own costs a full store, and its target's next draw a reload.
+// Clears wait for the target's first use and run in that scene.
+void flushClear(Target* t) {
+	if (!t->pendingClear) return;
+	bindFramebuffer(t->fbo);
+	glDisable(GL_SCISSOR_TEST);
+	glViewport(0, 0, t->glWidth, t->glHeight);
+	if (t->pendingClear & GL_COLOR_BUFFER_BIT) {
+		glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+		glClearColor(t->clearColor[0], t->clearColor[1], t->clearColor[2], t->clearColor[3]);
+	}
+	if (t->pendingClear & GL_DEPTH_BUFFER_BIT) {
+		glDepthMask(GL_TRUE);
+		glStencilMask(0xFF);
+		glClearDepthf(t->clearDepth);
+		glClearStencil(t->clearStencil);
+	}
+	glClear(t->pendingClear);
+	t->pendingClear = 0;
+	state.targetDirty = true;
+	invalidateApplied();
+}
+void flushClearOfTexture(GLuint color) {
+	for (Target* t : targets)
+		if (t->color == color && t->pendingClear) flushClear(t);
 }
 
 void prepareDraw(uint32_t firstVertex, uint32_t endVertex) {
@@ -634,6 +684,7 @@ void prepareDraw(uint32_t firstVertex, uint32_t endVertex) {
 	static Program* lastProgram = nullptr;
 	Program* p = lastProgram && !std::memcmp(&key, &lastKey, sizeof key) ? lastProgram : programFor(key);
 	lastKey = key; lastProgram = p;
+	const uint64_t t0 = profileNow();
 	if (p != currentProgram) { glUseProgram(p->gl); currentProgram = p; }
 
 	// Vertex uniforms: c0-c24 and the bone palette (c25-c81) are versioned
@@ -673,8 +724,12 @@ void prepareDraw(uint32_t firstVertex, uint32_t endVertex) {
 		p->bufUploaded = state.envBufColor; p->alphaUploaded = int(state.alphaRef); p->fragmentUploaded = true;
 	}
 
+	const uint64_t t1 = profileNow();
 	for (int u = 0; u < 3; ++u) bindTexture(u, state.tex[u]);
+	const uint64_t t2 = profileNow();
 	applyFixedState();
+	const uint64_t t3 = profileNow();
+	if (profile) { stats.uniformUs += t1 - t0; stats.textureUs += t2 - t1; stats.stateUs += t3 - t2; }
 
 	// Attribute loaders (AttrInfo) fed from the buffers (BufInfo) in place.
 	static GLuint arrayBuffers[12] = {};
@@ -716,6 +771,7 @@ void prepareDraw(uint32_t firstVertex, uint32_t endVertex) {
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	for (unsigned reg = 0; reg < 5; ++reg)
 		if (!enabled[reg]) { glDisableVertexAttribArray(reg); glVertexAttrib4f(reg, 0, 0, 0, 1); }
+	if (profile) stats.attributeUs += profileNow() - t3;
 }
 
 GLenum glPrimitive(GPU_Primitive_t p) {
@@ -738,6 +794,7 @@ void collectGarbage() {
 }
 
 void present(Target* top) {
+	flushClear(top); // cleared but never drawn: show the clear
 	bindFramebuffer(0);
 	glViewport(0, 0, DisplayWidth, DisplayHeight);
 	glDisable(GL_SCISSOR_TEST); glDisable(GL_DEPTH_TEST); glDisable(GL_STENCIL_TEST);
@@ -745,12 +802,14 @@ void present(Target* top) {
 	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 	glClearColor(0, 0, 0, 1);
 	glClear(GL_COLOR_BUFFER_BIT);
-	// The 400x240 landscape picture, letterboxed to the display's height.
-	const float h = float(DisplayHeight), w = h * 400.f / 240.f;
+	// The landscape picture (the portrait target turned), scaled to the
+	// display's height: 16:9 fills it, a 5:3 one is letterboxed.
+	const float h = float(DisplayHeight);
+	const float w = std::min(float(DisplayWidth), h * float(top->c3d.frameBuf.height) / float(top->c3d.frameBuf.width));
 	const float x0 = (float(DisplayWidth) - w) * 0.5f;
 	const float left = x0 / DisplayWidth * 2 - 1, right = (x0 + w) / DisplayWidth * 2 - 1;
-	// Landscape (x, y from the top-left) shows portrait window (240 - y, 400 - x):
-	// u = 1 - y/240, v = 1 - x/400.
+	// Landscape (x, y from the top-left) shows portrait window (240 - y, W - x)
+	// of a W-wide canvas: u = 1 - y/240, v = 1 - x/W.
 	const float quad[4][4] = {
 		{left, 1, 1, 1}, {right, 1, 1, 0}, {left, -1, 0, 1}, {right, -1, 0, 0}, // x, y, u, v
 	};
@@ -788,6 +847,7 @@ void initDisplay() {
 	auto marker = [](const char* path) { FILE* f = std::fopen(path, "rb"); if (f) std::fclose(f); return f != nullptr; };
 	gpuTrace = marker("ux0:data/mkw/gpu-trace.txt");
 	gpuSync = marker("ux0:data/mkw/gpu-sync.txt");
+	profile = marker("ux0:data/mkw/profile.txt");
 	vglUseExtraMem(GL_FALSE); // LINEAR allocations must stay GPU-mapped
 	vglInitExtended(0, DisplayWidth, DisplayHeight, 16 * 1024 * 1024, SCE_GXM_MULTISAMPLE_NONE);
 	vglWaitVblankStart(GL_TRUE);
@@ -853,7 +913,9 @@ void C3D_DrawArrays(GPU_Primitive_t primitive, int first, int size) {
 	prepareDraw(u32(first), u32(first + size));
 	++stats.draws;
 	recordDraw(u32(size), false);
+	const uint64_t drawStart = profileNow();
 	glDrawArrays(glPrimitive(primitive), first, size);
+	if (profile) stats.drawUs += profileNow() - drawStart;
 	stats.glUs += sceKernelGetProcessTimeWide() - start;
 }
 void C3D_DrawElements(GPU_Primitive_t primitive, int count, int type, const void* indices) {
@@ -872,7 +934,9 @@ void C3D_DrawElements(GPU_Primitive_t primitive, int count, int type, const void
 	if (!elementBuffer) glGenBuffers(1, &elementBuffer);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, elementBuffer);
 	vglBufferData(GL_ELEMENT_ARRAY_BUFFER, drawIndices);
+	const uint64_t drawStart = profileNow();
 	glDrawElements(glPrimitive(primitive), count, type == C3D_UNSIGNED_SHORT ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE, nullptr);
+	if (profile) stats.drawUs += profileNow() - drawStart;
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 	stats.glUs += sceKernelGetProcessTimeWide() - start;
 }
@@ -1070,30 +1134,22 @@ void C3D_RenderTargetSetOutput(C3D_RenderTarget* target, gfxScreen_t screen, gfx
 	topOutput = target ? targetOf(target) : nullptr;
 }
 void C3D_FrameBufClear(C3D_FrameBuf* fb, C3D_ClearBits clearBits, u32 clearColor, u32 clearDepth) {
+	// Recorded, not run: see flushClear. A later clear of the same target
+	// replaces the values it sets.
 	Target* t = targetOfFrameBuf(fb);
-	bindFramebuffer(t->fbo);
-	glDisable(GL_SCISSOR_TEST);
-	glViewport(0, 0, t->glWidth, t->glHeight);
-	GLbitfield bits = 0;
 	if (clearBits & C3D_CLEAR_COLOR) {
 		// RGBA8 targets clear to 0xRRGGBBAA.
-		glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-		glClearColor(float(clearColor >> 24) / 255.f, float((clearColor >> 16) & 255) / 255.f,
-			float((clearColor >> 8) & 255) / 255.f, float(clearColor & 255) / 255.f);
-		bits |= GL_COLOR_BUFFER_BIT;
+		t->clearColor[0] = float(clearColor >> 24) / 255.f; t->clearColor[1] = float((clearColor >> 16) & 255) / 255.f;
+		t->clearColor[2] = float((clearColor >> 8) & 255) / 255.f; t->clearColor[3] = float(clearColor & 255) / 255.f;
+		t->pendingClear |= GL_COLOR_BUFFER_BIT;
 	}
 	if ((clearBits & C3D_CLEAR_DEPTH) && t->depth) {
-		glDepthMask(GL_TRUE);
-		glStencilMask(0xFF);
 		// GL window depth is 0.5 + 0.5 * (1 - PICA depth): a PICA clear to 0 (the
 		// far value) is the usual GL clear to 1.
-		glClearDepthf(1.f - 0.5f * float(clearDepth & 0xFFFFFF) / float(0xFFFFFF));
-		glClearStencil(int(clearDepth >> 24));
-		bits |= GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT;
+		t->clearDepth = 1.f - 0.5f * float(clearDepth & 0xFFFFFF) / float(0xFFFFFF);
+		t->clearStencil = int(clearDepth >> 24);
+		t->pendingClear |= GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT;
 	}
-	if (bits) glClear(bits);
-	state.targetDirty = true;
-	invalidateApplied();
 }
 void C3D_FrameBufTransfer(C3D_FrameBuf*, gfxScreen_t, gfx3dSide_t, u32) {}
 
@@ -1131,7 +1187,7 @@ void C3D_FrameEnd(u8) {
 		present(topOutput);
 		// Frame rate, draws and copies, every 300 presented frames.
 		uint64_t now = sceKernelGetProcessTimeWide();
-		if (stats.frames == 299) {
+		if (profile && stats.frames == 299) {
 			// Once per report: wait for the frame just presented. A long wait
 			// means the GPU, not the draw thread, sets the frame rate.
 			glFinish();
@@ -1156,9 +1212,13 @@ void C3D_FrameEnd(u8) {
 				stats.frameUs ? 299e6 / double(stats.frameUs) : 0.0, stats.draws / 300, stats.copies / 300,
 				unsigned(stats.copiedBytes / 300 / 1024), double(stats.beginWaitUs) / 300e3, double(stats.workUs) / 300e3,
 				double(stats.swapUs) / 300e3);
-			std::printf("c3dvita:   in draw calls %.2f ms (game work %.2f ms), %u target switches/frame, gpu tail %.2f ms\n",
+			std::printf("c3dvita:   in draw calls %.2f ms (game work %.2f ms), %u target switches/frame\n",
 				double(stats.glUs) / 300e3, double(stats.workUs > stats.glUs ? stats.workUs - stats.glUs : 0) / 300e3,
-				stats.targetSwitches / 300, double(stats.gpuTailUs) / 1e3);
+				stats.targetSwitches / 300);
+			if (profile)
+				std::printf("c3dvita:   gpu tail %.2f ms; per frame: uniforms %.2f, textures %.2f, state %.2f, attributes %.2f, vitaGL draw %.2f ms\n",
+					double(stats.gpuTailUs) / 1e3, double(stats.uniformUs) / 300e3, double(stats.textureUs) / 300e3,
+					double(stats.stateUs) / 300e3, double(stats.attributeUs) / 300e3, double(stats.drawUs) / 300e3);
 			const uint64_t keep = stats.lastPresentUs;
 			stats = {};
 			stats.lastPresentUs = keep;
@@ -1177,6 +1237,7 @@ void C3D_SyncDisplayTransfer(u32* inadr, u32, u32* outadr, u32, u32) {
 	Target* t = nullptr;
 	for (Target* candidate : targets) if (candidate->c3d.frameBuf.colorBuf == inadr) t = candidate;
 	if (!t) return;
+	flushClear(t);
 	const int w = t->c3d.frameBuf.width, h = t->c3d.frameBuf.height;
 	std::vector<uint8_t> pixels(size_t(t->glWidth) * t->glHeight * 4);
 	glBindFramebuffer(GL_FRAMEBUFFER, t->fbo);
