@@ -102,6 +102,7 @@ resolution=2
 - **Short freezes on the first launch:** shaders compiling. They're saved to `ux0:data/mkw/shaders/` and loaded at start-up after that.
 - **Something looks wrong after an update:** delete `ux0:data/mkw/shaders/` to rebuild the shader cache.
 - **Logs:** `ux0:data/mkw/vita.log` (graphics, frame rate) and `ux0:data/mkw/runtime.log` (game). Attach both when reporting a problem.
+- **Problems building assets:** Try to use python 3.14.5 and make sure you have Visual C++ 14.0 or later.
 
 ## How it works
 
