@@ -1481,7 +1481,8 @@ void Renderer::textNow(const char* text,float x,float y,float size,uint32_t rgba
 // Every modified vertex/texture range is explicitly flushed by its writer.
 // Citro3D may flush the command list without redundantly flushing the LINEAR heap.
 void Renderer::requestBloomNow(const CourseBloom& settings){
-    bloomRequested_=settings.enabled();bloomSettings_=&settings;
+    // bloomBlurRounds 0 (quality.txt) turns bloom off.
+    bloomRequested_=settings.enabled()&&renderQuality().bloomBlurRounds>0;bloomSettings_=&settings;
 }
 bool Renderer::initBloomTargets(){
     if(sceneTarget_)return true;

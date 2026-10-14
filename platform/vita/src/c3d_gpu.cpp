@@ -16,6 +16,7 @@
 #include <psp2/kernel/sysmem.h>
 #include <psp2/kernel/processmgr.h>
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -42,9 +43,14 @@ unsigned int sceUserMainThreadStackSize = 1024 * 1024;
 
 namespace {
 
-// Internal resolution: render targets are this many times their 3DS size.
-// 2 renders the top screen at 480x800 (800x480 landscape).
-constexpr int Scale = 2;
+// Internal resolution: render targets are this many times their canvas size.
+// 1.5 (the default, for 60 FPS races) renders the 16:9 top screen at 636x360;
+// quality.txt "resolution=2" (1 to 2) gives 848x480 for more GPU time. Read
+// once, before any target exists.
+float Scale = 1.5f;
+// Canvas units to target pixels: an edge, and a span from an edge.
+inline int scaled(int v) { return int(std::lround(float(v) * Scale)); }
+inline int scaledSpan(int from, int size) { return scaled(from + size) - scaled(from); }
 constexpr int DisplayWidth = 960, DisplayHeight = 544;
 
 bool displayReady = false;
@@ -513,13 +519,13 @@ void applyFixedState() {
 	const bool all = !a.valid;
 	if (state.targetDirty || all || a.target != state.target) { bindTarget(state.target); state.targetDirty = false; a.target = state.target; }
 	if (all || std::memcmp(a.viewport, state.viewport, sizeof a.viewport)) {
-		glViewport(state.viewport[0] * Scale, state.viewport[1] * Scale, state.viewport[2] * Scale, state.viewport[3] * Scale);
+		glViewport(scaled(state.viewport[0]), scaled(state.viewport[1]), scaledSpan(state.viewport[0], state.viewport[2]), scaledSpan(state.viewport[1], state.viewport[3]));
 		std::memcpy(a.viewport, state.viewport, sizeof a.viewport);
 	}
 	if (all || a.scissor != state.scissor || (state.scissor && std::memcmp(a.scissorBox, state.scissorBox, sizeof a.scissorBox))) {
 		if (state.scissor) {
 			glEnable(GL_SCISSOR_TEST);
-			glScissor(state.scissorBox[0] * Scale, state.scissorBox[1] * Scale, state.scissorBox[2] * Scale, state.scissorBox[3] * Scale);
+			glScissor(scaled(state.scissorBox[0]), scaled(state.scissorBox[1]), scaledSpan(state.scissorBox[0], state.scissorBox[2]), scaledSpan(state.scissorBox[1], state.scissorBox[3]));
 		} else glDisable(GL_SCISSOR_TEST);
 		a.scissor = state.scissor; std::memcpy(a.scissorBox, state.scissorBox, sizeof a.scissorBox);
 	}
@@ -848,6 +854,14 @@ void initDisplay() {
 	gpuTrace = marker("ux0:data/mkw/gpu-trace.txt");
 	gpuSync = marker("ux0:data/mkw/gpu-sync.txt");
 	profile = marker("ux0:data/mkw/profile.txt");
+	if (FILE* f = std::fopen("ux0:data/mkw/quality.txt", "rb")) {
+		char line[128];
+		float value = 0;
+		while (std::fgets(line, sizeof line, f))
+			if (std::sscanf(line, " resolution = %f", &value) == 1) Scale = std::clamp(value, 1.f, 2.f);
+		std::fclose(f);
+	}
+	std::printf("c3dvita: internal resolution %.2fx\n", double(Scale));
 	vglUseExtraMem(GL_FALSE); // LINEAR allocations must stay GPU-mapped
 	vglInitExtended(0, DisplayWidth, DisplayHeight, 16 * 1024 * 1024, SCE_GXM_MULTISAMPLE_NONE);
 	vglWaitVblankStart(GL_TRUE);
@@ -1075,7 +1089,7 @@ void C3D_TexShadowParams(bool, float) {}
 // ---- Render targets ------------------------------------------------------------------------
 extern "C" C3D_RenderTarget* c3dvita_RenderTargetCreate(int width, int height, GPU_COLORBUF colorFmt, int depthFmt) {
 	auto* t = new Target{};
-	t->glWidth = width * Scale; t->glHeight = height * Scale;
+	t->glWidth = scaled(width); t->glHeight = scaled(height);
 	createTargetStorage(*t, 0, depthFmt);
 	C3D_FrameBuf& fb = t->c3d.frameBuf;
 	fb.colorBuf = t; // identifies the target (C3D_SyncDisplayTransfer)
@@ -1096,7 +1110,7 @@ extern "C" C3D_RenderTarget* c3dvita_RenderTargetCreateFromTex(C3D_Tex* tex, GPU
 	LightLock_Unlock(&textureLock);
 	if (!record) return nullptr;
 	auto* t = new Target{};
-	t->glWidth = tex->width * Scale; t->glHeight = tex->height * Scale;
+	t->glWidth = scaled(tex->width); t->glHeight = scaled(tex->height);
 	// The texture is sampled through its record: give it the target's storage.
 	if (!record->gl) glGenTextures(1, &record->gl);
 	glBindTexture(GL_TEXTURE_2D, record->gl);
@@ -1248,7 +1262,7 @@ void C3D_SyncDisplayTransfer(u32* inadr, u32, u32* outadr, u32, u32) {
 	auto* out = reinterpret_cast<uint8_t*>(outadr);
 	for (int y = 0; y < h; ++y)
 		for (int x = 0; x < w; ++x) {
-			const uint8_t* p = pixels.data() + (size_t(y * Scale) * t->glWidth + size_t(x * Scale)) * 4;
+			const uint8_t* p = pixels.data() + (size_t(y * Scale) * t->glWidth + size_t(x * Scale)) * 4; // nearest sample
 			uint8_t* o = out + (size_t(h - 1 - y) * w + x) * 4;
 			o[0] = p[3]; o[1] = p[2]; o[2] = p[1]; o[3] = p[0];
 		}

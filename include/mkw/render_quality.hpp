@@ -38,6 +38,10 @@ struct RenderQuality {
     // after the race's VRAM users have loaded, leaving vramReserve bytes free.
     bool vramCourseTextures=false;
     static constexpr std::size_t vramReserve=1024*1024;
+    // Vita (quality.txt): races at 60 or 30 FPS, and the Wii-style map (the
+    // course's map model) or, with map=0, the racing-line outline.
+    unsigned framerate=60;
+    bool wiiMap=true;
     void setReduced(bool on){
         *this=RenderQuality{};
         if(!on)return;

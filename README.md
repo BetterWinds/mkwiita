@@ -14,9 +14,10 @@ This repository contains **no Nintendo files**. You build the game files
 yourself, on your own computer, from your own Mario Kart Wii disc.
 
 > **Status: playable, work in progress.** Menus, Grand Prix, VS and Time
-> Trials run on real hardware, with sound. It runs at roughly 30 FPS. The
-> first time a new material appears the game pauses to compile its shader;
-> those are cached, so later launches are smooth.
+> Trials run on real hardware, with sound, in 16:9. Races run at 45-60 FPS
+> (or a locked 30, see [Settings](#settings)). The first time a new material
+> appears the game pauses to compile its shader; those are cached, so later
+> launches are smooth.
 
 ## What works
 
@@ -26,10 +27,10 @@ yourself, on your own computer, from your own Mario Kart Wii disc.
 | All 24 drivers and 36 vehicles | ✅ |
 | Items, CPU racers, results and standings | ✅ |
 | Music and sound effects | ✅ |
-| Wii-style course map in races | ✅ |
+| Wii-style course map, race timer and incoming-item warning | ✅ |
 | Best times saved | ✅ |
-| Widescreen (16:9) | ⏳ The picture is 5:3 with side bars |
-| Steady 60 FPS | ⏳ Performance work ongoing |
+| Widescreen (16:9) | ✅ |
+| Steady 60 FPS | ⏳ 45-60 FPS in races; performance work ongoing |
 | Battle, Team VS, award ceremony, Mirror, online | ❌ Not yet (as in MKW-3DS) |
 
 ## What you need
@@ -73,6 +74,27 @@ game data. The VPK itself is only the program; it holds no game data.
 | L | Use item |
 | START | Pause |
 | SELECT | Speedometer on/off |
+
+## Settings
+
+Optional: create `ux0:data/mkw/quality.txt` with one `name=value` per line.
+The values in use are written to `ux0:data/mkw/vita.log` at start-up.
+
+| Setting | Default | |
+|---|---|---|
+| `framerate` | `60` | `30` locks races to a steady 30 FPS |
+| `resolution` | `1.5` | Internal resolution, `1` to `2`. `2` is sharper (848x480) but slower; use it with `framerate=30` |
+| `map` | `1` | `0` shows the simple racing-line map instead of the Wii-style map |
+| `shadowVolumes` | `1` | `0` turns off kart and object shadows |
+| `bloomBlurRounds` | `2` | Glow: `1` cheaper, `0` off |
+| `particleBudget` | no limit | Fewer smoke and spark particles, e.g. `96` |
+
+For example, the sharp look at a locked 30 FPS:
+
+```
+framerate=30
+resolution=2
+```
 
 ## Troubleshooting
 

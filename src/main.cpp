@@ -123,14 +123,16 @@ static void applyVitaQuality(){
             else if(n=="particleBudget")q.particleBudget=value<0?~0u:unsigned(value);
             else if(n=="kartEffectScreens")q.kartEffectScreens=unsigned(value);
             else if(n=="animationStep")q.animationStep=unsigned(value);
+            else if(n=="framerate")q.framerate=value<45?30u:60u;
+            else if(n=="map")q.wiiMap=value!=0;
         }
         fclose(f);
     }
     // GL owns every uploaded texture, so the 3DS's move to VRAM would only copy the CPU side.
     q.vramCourseTextures=false;
-    printf("quality: minScreenRatio %.3f objectLowDistance %.0f shadowVolumes %d bloomBlurRounds %u boxSparkleRatio %.3f particleBudget %d kartEffectScreens %u animationStep %u\n",
+    printf("quality: minScreenRatio %.3f objectLowDistance %.0f shadowVolumes %d bloomBlurRounds %u boxSparkleRatio %.3f particleBudget %d kartEffectScreens %u animationStep %u framerate %u map %d\n",
         double(q.minScreenRatio),double(q.objectLowDistance),int(q.shadowVolumes),q.bloomBlurRounds,double(q.boxSparkleRatio),
-        q.particleBudget==~0u?-1:int(q.particleBudget),q.kartEffectScreens,q.animationStep);
+        q.particleBudget==~0u?-1:int(q.particleBudget),q.kartEffectScreens,q.animationStep,q.framerate,int(q.wiiMap));
 }
 #endif
 static K::u8* replayData=nullptr;
@@ -1200,10 +1202,9 @@ int main() {
     // 30 FPS. New 3DS and New 2DS XL present at 60, or at 30 while the 3D
     // slider is up (stereo draws every frame twice).
 #ifdef __vita__
-    // The Vita reports a New 3DS but draws races in more than one 60 Hz tick:
-    // a steady 30 instead of alternating one- and two-tick frames.
-    // ux0:data/mkw/race60.txt asks for 60.
-    const bool race60=exists("ux0:data/mkw/race60.txt");
+    // Races present every tick (60 FPS) by default, at the lower internal
+    // resolution (c3d_gpu.cpp); quality.txt framerate=30 asks for a steady 30.
+    const bool race60=mkw::renderQuality().framerate>=60;
     auto raceTicksPerFrame=[&]{return race60&&!renderer.stereoWanted()?1u:2u;};
 #else
     auto raceTicksPerFrame=[&]{return new3ds&&!renderer.stereoWanted()?1u:2u;};

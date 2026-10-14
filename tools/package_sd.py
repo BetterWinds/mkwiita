@@ -286,7 +286,7 @@ for extra in sorted(flow.glob('flow_*.t3x')):
 # and the UI atlas, cooked into this tree's own overlay directory.
 race_map=ROOT/'build/race-map/textures'
 if not (race_map/'race_bottom_ui.t3x').is_file():raise ValueError('Run tools/cook_race_map.py before packaging')
-for extra in sorted(race_map.glob('race_*.t3x')):
+for extra in sorted([*race_map.glob('race_*.t3x'),*race_map.glob('race_minimap_*.bin')]):
  if not extra.name.startswith('._'):overlay['textures/'+extra.name]=extra
 # Sound engine (tools/cook_audio.py): the cooked tables from build/audio and
 # the user's retail BRSAR and BRSTM streams, unmodified, read by offset.

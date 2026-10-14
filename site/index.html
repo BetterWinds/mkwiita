@@ -436,6 +436,7 @@
         <a href="#about">About</a>
         <a href="#screens">Screenshots</a>
         <a href="#status">Status</a>
+        <a href="#settings">Settings</a>
         <a href="#install">Install</a>
         <a class="gh" href="https://github.com/boomannotjeff/mkwiita">Repository</a>
       </nav>
@@ -456,8 +457,7 @@
         </div>
         <div class="vita">
           <img class="shell" src="pictures/vita.webp" alt="" width="1200" height="542">
-          <img class="screen" src="pictures/2026-10-13-013522.png"
-            alt="Mario popping a wheelie on Luigi Circuit, final lap, 2nd place">
+          <img class="screen" src="pictures/2026-10-14-012346.png" alt="Luigi in race on Daisy Circuit">
         </div>
       </div>
     </div>
@@ -515,12 +515,12 @@
                 alt="Luigi Circuit course intro">
               <figcaption>Course intro</figcaption>
             </button></figure>
-          <figure style="margin:0"><button data-full><img loading="lazy" src="pictures/2026-10-13-013348.png"
-                alt="Racing on Luigi Circuit with the course map">
+          <figure style="margin:0"><button data-full><img loading="lazy" src="pictures/2026-10-14-012346.png"
+                alt="Racing on Daisy Circuit with the course map">
               <figcaption>Racing, with the Wii-style map</figcaption>
             </button></figure>
-          <figure style="margin:0"><button data-full><img loading="lazy" src="pictures/2026-10-13-013428.png"
-                alt="Holding triple green shells in 2nd place">
+          <figure style="margin:0"><button data-full><img loading="lazy" src="pictures/2026-10-14-012245.png"
+                alt="Holding 2 mushrooms in 9th place">
               <figcaption>Items</figcaption>
             </button></figure>
           <figure style="margin:0"><button data-full><img loading="lazy" src="pictures/2026-10-13-013522.png"
@@ -543,20 +543,46 @@
     <section id="status">
       <div class="wrap">
         <h2>Status</h2>
-        <p class="sub">Grand Prix, VS and Time Trials run on real hardware with sound, at roughly 30 FPS.</p>
+        <p class="sub">Grand Prix, VS and Time Trials run on real hardware with sound, in 16:9, with races at 45–60 FPS.
+        </p>
         <div class="status">
           <div class="row"><span>Menus, Grand Prix (50/100/150cc), VS, Time Trials</span><span class="ok">Working</span>
           </div>
           <div class="row"><span>All 24 drivers and 36 vehicles</span><span class="ok">Working</span></div>
           <div class="row"><span>Items, CPU racers, results and standings</span><span class="ok">Working</span></div>
           <div class="row"><span>Music and sound effects</span><span class="ok">Working</span></div>
-          <div class="row"><span>Wii-style course map, saved best times</span><span class="ok">Working</span></div>
-          <div class="row"><span>Widescreen 16:9 (currently 5:3 with side bars)</span><span class="wip">In
-              progress</span></div>
-          <div class="row"><span>Steady 60 FPS</span><span class="wip">In progress</span></div>
+          <div class="row"><span>Wii-style course map, race timer, incoming-item warning, saved best times</span><span
+              class="ok">Working</span></div>
+          <div class="row"><span>Widescreen 16:9</span><span class="ok">Working</span></div>
+          <div class="row"><span>Steady 60 FPS (races run at 45–60 now)</span><span class="wip">In progress</span></div>
           <div class="row"><span>Battle, Team VS, award ceremony, Mirror, online</span><span class="no">Not yet</span>
           </div>
         </div>
+      </div>
+    </section>
+
+    <section id="settings">
+      <div class="wrap">
+        <h2>Settings</h2>
+        <p class="sub">Optional. Create <code>ux0:data/mkw/quality.txt</code> with one <code>name=value</code> per line.
+          The values in use are written to <code>ux0:data/mkw/vita.log</code> at start-up.</p>
+        <div class="status">
+          <div class="row"><span><code>framerate=30</code> locks races to a steady 30 FPS</span><span class="no">default
+              60</span></div>
+          <div class="row"><span><code>resolution=2</code> sharper picture (848×480), but slower: pair it with 30 FPS.
+              Any value from 1 to 2</span><span class="no">default 1.5</span></div>
+          <div class="row"><span><code>map=0</code> the simple racing-line map instead of the Wii-style one</span><span
+              class="no">default 1</span></div>
+          <div class="row"><span><code>shadowVolumes=0</code> turns off kart and object shadows</span><span
+              class="no">default 1</span></div>
+          <div class="row"><span><code>bloomBlurRounds=1</code> cheaper glow; <code>0</code> turns it off</span><span
+              class="no">default 2</span></div>
+          <div class="row"><span><code>particleBudget=96</code> fewer smoke and spark particles</span><span
+              class="no">default no limit</span></div>
+        </div>
+        <p class="note">For the sharp look at a locked 30 FPS, put these two lines in the file:
+          <code>framerate=30</code> and <code>resolution=2</code>.
+        </p>
       </div>
     </section>
 
@@ -567,7 +593,8 @@
         </p>
         <ol class="steps">
           <li>Download <code>mkw.vpk</code> from the
-            <a href="https://github.com/boomannotjeff/mkwiita/releases/latest">latest release</a>.</li>
+            <a href="https://github.com/boomannotjeff/mkwiita/releases/latest">latest release</a>.
+          </li>
           <li>Build the game files: double-click <code>Build Game Files.bat</code> (from the same release's source
             code), drag your disc image into the window and press Enter. The first build takes 30–60 minutes.
             Building the VPK yourself? Use <code>Build MKW Vita.bat</code> instead (needs VitaSDK).</li>

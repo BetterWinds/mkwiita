@@ -1,5 +1,7 @@
 // Race bottom screen: see include/mkw/race_bottom_screen.hpp and docs/BOTTOM_SCREEN.md.
 #include <mkw/race_bottom_screen.hpp>
+#include <mkw/asset_pack.hpp>
+#include <mkw/render_quality.hpp>
 #include <mkw/race_map_assets.hpp>
 #include <mkw/race_grid.hpp>
 #include <mkw/race_items.hpp>
@@ -10,6 +12,7 @@
 #include <game/system/RaceConfig.hh>
 #include <game/system/RaceManager.hh>
 #include <game/system/CourseMap.hh>
+#include <cstring>
 #include <vector>
 #include <3ds.h>
 #include <algorithm>
@@ -57,8 +60,12 @@ struct RaceBottomScreen::Impl {
     // first use) and the racer face, alternating per frame (deferred frames).
     Texture miniMap;bool miniBuilt=false;
     float miniX0=0,miniZ0=0,miniScale=1,miniOx=0,miniOy=0,miniW=0,miniH=0;
-    // The map, 12 faces and the player's rim, then the 10 timer panes.
-    Renderer::MaterialQuad miniQuad[2][2+12+10]{};
+    // The map, 12 faces and the player's rim, the 10 timer panes, the start line.
+    Renderer::MaterialQuad miniQuad[2][2+12+10+1]{};
+    // The Wii-style map (the default; quality.txt map=0 turns it off): the
+    // course's map model baked from above (tools/cook_race_minimap.py) and the start strip.
+    bool wiiMap=false;Texture wiiMapTexture,wiiStart;
+    float wiiX0=0,wiiZ0=0,wiiUpt=1;uint16_t wiiW=0,wiiH=0,wiiPW=1,wiiPH=1;
     // Each face's spin (radians) while its racer is hit; the last tick seen.
     std::array<float,12> miniSpin{};uint32_t miniTick=0;bool miniTicked=false;
     unsigned course=~0u;
@@ -168,6 +175,18 @@ bool RaceBottomScreen::load(Renderer& renderer,unsigned course){
     renderer.loadVramTexture(m.overview,c.overview);
     m.started=false;m.blend=0;m.overviewWanted=false;m.standings=0;m.rowsSet=false;
     m.miniMap.reset();m.miniBuilt=false;
+    m.wiiMap=false;m.wiiMapTexture.reset();m.wiiStart.reset();
+    if(renderQuality().wiiMap){
+        char path[64];std::snprintf(path,sizeof path,"textures/race_minimap_%02u.bin",course);
+        std::vector<uint8_t> bounds;
+        if(!pack::read(path,bounds))if(FILE* f=std::fopen(path,"rb")){bounds.resize(20);bounds.resize(std::fread(bounds.data(),1,20,f));std::fclose(f);}
+        std::snprintf(path,sizeof path,"textures/race_minimap_%02u.t3x",course);
+        if(bounds.size()==20&&m.wiiMapTexture.load(path)&&m.wiiStart.load("textures/race_minimap_start.t3x")){
+            float f[3];uint16_t s[4];std::memcpy(f,bounds.data(),12);std::memcpy(s,bounds.data()+12,8);
+            m.wiiX0=f[0];m.wiiZ0=f[1];m.wiiUpt=f[2];m.wiiW=s[0];m.wiiH=s[1];m.wiiPW=s[2];m.wiiPH=s[3];
+            m.wiiMap=m.wiiUpt>0&&m.wiiW&&m.wiiH;
+        }
+    }
     return true;
 }
 
@@ -178,6 +197,7 @@ void RaceBottomScreen::unload(Renderer& renderer){
     renderer.waitForGpu();
     m.map.reset();m.overview.reset();m.atlas.reset();
     m.quads.reset();m.miniMap.reset();m.miniBuilt=false;
+    m.wiiMap=false;m.wiiMapTexture.reset();m.wiiStart.reset();
     renderer.releaseBottom();
     m.target=false;m.course=~0u;
 }
@@ -393,7 +413,7 @@ void RaceBottomScreen::drawMini(Renderer& renderer,const BottomView& view){
     auto& m=*impl_;
     if(!m.target)return;
     namespace K=Kinoko;
-    if(!m.miniBuilt){
+    if(!m.wiiMap&&!m.miniBuilt){
         m.miniBuilt=true;
         auto* map=K::System::CourseMap::Instance();
         const unsigned count=map?map->getCheckPointCount():0;
@@ -443,16 +463,45 @@ void RaceBottomScreen::drawMini(Renderer& renderer,const BottomView& view){
         C3D_TexSetWrap(&m.miniMap.gpu,GPU_CLAMP_TO_EDGE,GPU_CLAMP_TO_EDGE);
         m.miniMap.ready=true;
     }
-    if(!m.miniMap.ready)return;
+    if(!m.wiiMap&&!m.miniMap.ready)return;
     auto* quads=m.miniQuad[renderer.recordingFrame()&1];
     auto set=[](Renderer::MaterialQuad& q,float x0,float y0,float x1,float y1,float u0,float v0,float u1,float v1,uint32_t color){
         q.x[0]=x0;q.y[0]=y0;q.x[1]=x1;q.y[1]=y0;q.x[2]=x0;q.y[2]=y1;q.x[3]=x1;q.y[3]=y1;
         q.u[0]=u0;q.v[0]=v0;q.u[1]=u1;q.v[1]=v0;q.u[2]=u0;q.v[2]=v1;q.u[3]=u1;q.v[3]=v1;
         for(auto& c:q.color)c=color;
     };
-    const float side=std::max(m.miniW,m.miniH);
-    set(quads[0],m.miniOx,m.miniOy,m.miniOx+side,m.miniOy+side,0,0,1,1,0xffffffffu);
-    renderer.drawScreenMaterialQuadsInPlace(&m.miniMap,quads,1,0x00000000u,0xffffffffu);
+    if(m.wiiMap){
+        // The Wii's place for it (map.brctr map_1: x 250, y -65, scale 1.3 on the
+        // 832x456 canvas, right-anchored; a 220-unit pane). The course spans
+        // about three quarters of the pane, as the Wii shows it.
+        constexpr float S=240.f/456.f,Box=220.f*1.3f*S*.72f;
+        const float cx=display::Width-(416.f-250.f)*S,cy=(228.f+65.f)*S;
+        const float s=std::min(Box/m.wiiW,Box/m.wiiH),w=m.wiiW*s,h=m.wiiH*s,ox=cx-w*.5f,oy=cy-h*.5f;
+        // See-through as the Wii's (about two thirds opaque).
+        set(quads[0],ox,oy,ox+w,oy+h,0,0,float(m.wiiW)/m.wiiPW,float(m.wiiH)/m.wiiPH,0xffffffa8u);
+        renderer.drawScreenMaterialQuadsInPlace(&m.wiiMapTexture,quads,1,0x00000000u,0xffffffffu);
+        // The faces below place racers through the same world-to-screen map.
+        const float pad=MiniRoad+MiniEdge+1.f;
+        m.miniX0=m.wiiX0;m.miniZ0=m.wiiZ0;m.miniScale=s/m.wiiUpt;m.miniOx=ox-pad;m.miniOy=oy-pad;
+        // The start line (start_line.brlyt, a 22x4 strip) across the road at
+        // checkpoint 0: well past the road's edges and thick, as the Wii draws it.
+        const auto& course=RaceMapCourses[m.course];
+        auto screen=[&](const float (&p)[2],float& x,float& y){x=ox+(p[0]-m.wiiX0)*m.miniScale;y=oy+(p[1]-m.wiiZ0)*m.miniScale;};
+        float ax,ay,bx,by;screen(course.startLeft,ax,ay);screen(course.startRight,bx,by);
+        const float dx=bx-ax,dy=by-ay,len=std::sqrt(dx*dx+dy*dy);
+        if(len>.5f&&m.wiiStart.ready){
+            const float ux=dx/len,uy=dy/len,half=std::max(len*.9f,6.f),thick=std::max(3.5f,half*2.f*6.f/22.f)*.5f;
+            const float mx=(ax+bx)*.5f,my=(ay+by)*.5f,nx=-uy*thick,ny=ux*thick;
+            auto& q=quads[2+12+10];set(q,0,0,0,0,0,0,22.f/m.wiiStart.gpu.width,4.f/m.wiiStart.gpu.height,0xffffffffu);
+            q.x[0]=mx-ux*half-nx;q.y[0]=my-uy*half-ny;q.x[1]=mx+ux*half-nx;q.y[1]=my+uy*half-ny;
+            q.x[2]=mx-ux*half+nx;q.y[2]=my-uy*half+ny;q.x[3]=mx+ux*half+nx;q.y[3]=my+uy*half+ny;
+            renderer.drawScreenMaterialQuadsInPlace(&m.wiiStart,&q,1,0x00000000u,0xffffffffu);
+        }
+    }else{
+        const float side=std::max(m.miniW,m.miniH);
+        set(quads[0],m.miniOx,m.miniOy,m.miniOx+side,m.miniOy+side,0,0,1,1,0xffffffffu);
+        renderer.drawScreenMaterialQuadsInPlace(&m.miniMap,quads,1,0x00000000u,0xffffffffu);
+    }
     // Every racer's face where it is, the Wii's way: the others small, worst
     // position first; the local racer last, larger, with a black rim.
     if(!m.atlas.ready)return;
