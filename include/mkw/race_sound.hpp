@@ -24,6 +24,7 @@ public:
   unsigned lapCount = 3;
   unsigned engineClass = 2;   // 0 50cc, 1 100cc, 2 150cc
   bool preview = false;       // the course preview plays first (retail intro section)
+  bool mirror = false;        // mirror mode: course triggers and 3D pan flip
   unsigned racers = 0;
   std::uint32_t graphicsReserve = 2048u * 1024;
   std::array<Racer, 12> racer{};

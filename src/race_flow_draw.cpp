@@ -184,30 +184,42 @@ void FlowDrawer::draw(const RaceResultsFlow& flow,FlowSink sink,void* context){
   // its HUD slot colour (1P); CPU rows selectOff and Other. Fade stays on Main.
   const auto& def=FlowResultLayout;
   auto& poses=m.poses;
-  for(unsigned human=0;human<2;++human){
+  // Battle rows play the Team clips: the player's row its team colour, the
+  // others the team's clear variant; the player's slot colour is its team's.
+  static const char* teamClips[3][2]={{"off","off"},{"red_other","red"},{"blue_other","blue"}};
+  static const char* playerClips[3]={"1P","TeamRed","TeamBlue"};
+  bool teamUsed[3]={true,false,false};
+  for(unsigned i=0;i<flow.rowCount();++i){const unsigned t=flow.row(i).team;if(t<2)teamUsed[t+1]=true;}
+  for(unsigned team=0;team<3;++team)if(teamUsed[team])for(unsigned human=0;human<2;++human){
    FlowPlay plays[5]={flowPlay(def,"Fade","Main"),flowPlay(def,"Loop","loop"),flowPlay(def,"Select",human?"selectOn":"selectOff"),
-                      flowPlay(def,"Team","off"),flowPlay(def,"Player",human?"1P":"Other")};
+                      flowPlay(def,"Team",teamClips[team][human]),flowPlay(def,"Player",human?playerClips[team]:"Other")};
    for(auto& p:plays)flowAdvance(def,p,float(m.boardFrame));
-   poses[human].evaluate(def,plays,5);
+   poses[team*2+human].evaluate(def,plays,5);
   }
   const unsigned rows=flow.rowCount();
   std::array<Placement,12> at{};
   for(unsigned i=0;i<rows;++i){
    const auto& c=FlowResultRows[i];
-   at[i]={c.x+flow.slideOffset(c.delay),c.y,c.sx,c.sy};
+   if(award){
+    // AwardItemWin's two columns (left 1st-6th, right 7th-12th), the rows
+    // scaled to fit side by side.
+    constexpr float Scale=.68f,Column=208.f,Top=24.f,Step=36.f;
+    at[i]={(i<6?-Column:Column)+flow.slideOffset(c.delay),Top-float(i%6)*Step,Scale,Scale};
+   }else at[i]={c.x+flow.slideOffset(c.delay),c.y,c.sx,c.sy};
    std::snprintf(numbers[i][0],sizeof numbers[i][0],"+%u",unsigned(flow.row(i).gain));
    std::snprintf(numbers[i][1],sizeof numbers[i][1],"%d",flow.count(i).shown);
   }
   static const int iconPane=flowPaneIndex(def,"chara_icon"),shadowPane=flowPaneIndex(def,"chara_icon_sha");
   for(unsigned p=0;p<def.paneCount&&p<FlowPose::MaxPanes;++p){
    const auto& pane=def.panes[p];if(pane.kind==0)continue;
-   for(unsigned human=0;human<2;++human){
-    const auto& pose=poses[human].panes[p];
+   for(unsigned look=0;look<6;++look){
+    const unsigned team=look/2,human=look%2;if(!teamUsed[team])continue;
+    const auto& pose=poses[look].panes[p];
     if(!pose.visible||pose.alpha<=0)continue;
-    const auto& material=poses[human].materials[pane.material];
+    const auto& material=poses[look].materials[pane.material];
     for(unsigned i=0;i<rows;++i){
      if(std::fabs(at[i].x)>680.f)continue; // the whole row is off screen (300 + 380 units)
-     const auto& row=flow.row(i);if(row.human!=bool(human))continue;
+     const auto& row=flow.row(i);if(row.human!=bool(human)||(row.team<2?unsigned(row.team)+1u:0u)!=team)continue;
      if(pane.kind==1){
       if(int(p)==iconPane||int(p)==shadowPane){
        const auto& r=FlowIconRects[row.character<24?row.character:24];

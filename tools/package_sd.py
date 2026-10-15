@@ -177,6 +177,15 @@ for camera in ceremony['cameras']:
  relative=Path(camera['file'])
  if relative.parent!=Path('models/ceremony') or relative.suffix!='.scam':raise ValueError('Invalid ceremony camera path')
  files[assets/relative]=relative
+for name in ('winningRun',):
+ relative=Path(ceremony[name])
+ if relative.parent!=Path('models/ceremony') or relative.suffix!='.bin':raise ValueError('Invalid ceremony data path')
+ files[assets/relative]=relative
+files[assets/'models/ceremony/text.bin']=Path('models/ceremony/text.bin')
+for text in ceremony['text'].values():
+ relative=Path(text['path'])
+ if relative.parent!=Path('textures') or relative.suffix!='.t3x':raise ValueError('Invalid ceremony text path')
+ safe_name(relative.stem,'ceremony text');files[assets/relative]=relative
 # Battle content and race/award UI images (tools/cook_battle.py).
 battle=json.loads((assets/'models/battle.json').read_text())
 if battle.get('version')!=1:raise ValueError('Cook the battle content (tools/cook_battle.py) before packaging')

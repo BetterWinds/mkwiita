@@ -36,7 +36,17 @@ public:
     // exitSlide: the race-end CtrlRaceBase hide slide 0..1, or -1.
     void drawOverlay(Renderer&,const RaceItems&,unsigned stage,unsigned timer,unsigned rank,unsigned lap,bool finished,unsigned tick,int finishFrame=-1,float exitSlide=-1.f);
     bool speedometer=false; // off as on the Wii; SELECT toggles it during a race
+    // Battle (Balloon Battle, Coin Runners): the lap counter and position give
+    // way to the team score, the player's points or coins and the +1/-1 popup.
+    struct BattleView {bool active=false;unsigned red=0,blue=0,points=0,team=0;int popup=0;unsigned popupAge=0;};
+    BattleView battle;
+    // The battle digits and signs (textures/ui/race, cooked by tools/cook_battle.py).
+    bool loadBattle();
+    // The set's team totals at the top centre (battle_total_point total_point_3),
+    // over the results; winner 0 red, 1 blue pulses (2: none yet).
+    void drawBattleTotals(Renderer&,unsigned red,unsigned blue,unsigned winner,unsigned tick);
 private:
+    void drawBattle(Renderer&,float exitLift);
     struct Impl;std::unique_ptr<Impl> impl_;
 };
 }

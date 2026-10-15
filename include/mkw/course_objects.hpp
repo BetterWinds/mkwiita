@@ -15,6 +15,14 @@ public:
     bool loadCourse(int courseId);
     // The race scene was (re)created: re-link placements to new objects.
     void invalidate();
+    // Arena coins: drawn in Coin Runners only (Balloon Battle and races hide them).
+    void setCoins(bool visible);
+    // Coin Runners pickups (indices valid while linked; 0 before the first frame).
+    static constexpr unsigned CoinRespawnTicks=600;
+    unsigned coinCount() const;
+    Vec3 coinPosition(unsigned coin) const;
+    bool coinAvailable(unsigned coin,unsigned tick) const;
+    void collectCoin(unsigned coin,unsigned tick);
     // Records this frame's sky and object draws (poses, skinning, materials) on
     // the job worker; call after Renderer::begin with the same tick and camera
     // as drawSky/draw, which then replay them in order. Without it they record

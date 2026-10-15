@@ -103,8 +103,14 @@ void RaceGrid::configure(Kinoko::System::RaceConfig& config,unsigned localChoice
     static_assert(GarageChoices.size()%VehiclesPerDriver==0&&driverCount>=Capacity);
     count_=std::clamp(count,1u,Capacity);localChoice%=GarageChoices.size();
     auto& scenario=config.raceScenario();scenario.playerCount=count_;
+    const unsigned course=unsigned(scenario.course);
+    battleArena_=course>=32&&course<42;
     const unsigned localDriver=localChoice/VehiclesPerDriver;
+    // The grid: the set slots when they are a full permutation, else racer order.
+    bool slotted=true;{std::array<bool,Capacity> used{};
+        for(unsigned i=0;i<count_;++i){const unsigned slot=startSlots_[i];if(slot>=count_||used[slot]){slotted=false;break;}used[slot]=true;}}
     for(unsigned i=0;i<Capacity;++i){auto& p=scenario.players[i];
+        p.startPosition=slotted&&i<count_?startSlots_[i]:0xff;
         if(i>=count_){p.type=Kinoko::System::RaceConfig::Player::Type::None;continue;}
         // CPUs take each driver's standard kart, or standard bike (garage slot 3)
         // in the bikes-only 100cc Grand Prix.
@@ -124,13 +130,25 @@ bool RaceGrid::reset(){
     auto* kartObjects=Kart::KartObjectManager::Instance();
     for(unsigned i=0;i<count_;++i){
         auto* kart=kartObjects->object(i);
-        ranks_[i]=i+1;
+        // Ranks before the start follow the grid (CPU lanes read them).
+        const unsigned slot=config->raceScenario().players[i].startPosition;
+        ranks_[i]=slot<count_?slot+1:i+1;
         // Stat speed times the engine-class rate (retail KartMove +0x14).
         drivers_[i].nativeSpeed=kart->move()->statBaseSpeed();
         drivers_[i].last=native(kart->pos());
     }
     size_t size=0;const void* kmp=System::ResourceManager::Instance()->getFile("course.kmp",&size,System::ArchiveId::Course);
     bool ok=route_.load(kmp,size);bulletRoute_.load(kmp,size,true);
+    if(battleArena_){
+        // Arenas have no laps: their ENPT graph is a roaming network. CPUs
+        // wander it and chase nearby enemies (battleDrive); retail Enemy::AI
+        // (race laps) stays off.
+        speedParamReady_=false;lapDistance_=0;bulletRoute_.clear();
+        if(!ok)route_.clear();
+        CpuAi::Setup setup;setup.route=nullptr;setup.count=count_;
+        ai_.reset(setup);
+        return true;
+    }
     size_t paramSize=0;const void* params=System::ResourceManager::Instance()->getFile("kartAISpdParam.bin",&paramSize,System::ArchiveId::Core);
     // The chosen engine class, Normal CPUs. Difficulty selection is not exposed yet.
     const unsigned engineClass=std::min<unsigned>(config->raceScenario().engineClass,2);
@@ -182,6 +200,7 @@ void RaceGrid::beforeStep(uint16_t bulletPlayers){
         auto& d=drivers_[i];
         if(i==0&&!bullet&&!driveLocal){if(d.bullet)objects->object(i)->move()->setKartSpeedLimit();d.bullet=false;continue;}
         auto* pad=System::KPadDirector::Instance()->hostController(i);
+        if(battleArena_&&!bullet){battleDrive(i,racing);continue;}
         const auto& route=bullet?bulletRoute_:route_;
         if(!route.size()){pad->setInputsRawStick(0,7,7,System::Trick::None);continue;}
         unsigned& segment=bullet?d.bulletSegment:d.segment;
@@ -304,6 +323,58 @@ void RaceGrid::beforeStep(uint16_t bulletPlayers){
         const bool trick=racing&&!bullet&&kart->status().onBit(Kart::eStatus::AirStart)&&kart->status().offBit(Kart::eStatus::JumpPad,Kart::eStatus::InAction);
         pad->setInputsRawStick(buttons,unsigned(stick),7,trick?System::Trick::Up:System::Trick::None);
     }
+}
+void RaceGrid::battleDrive(unsigned i,bool racing){
+    using namespace Kinoko;
+    auto* objects=Kart::KartObjectManager::Instance();auto* manager=System::RaceManager::Instance();
+    auto* pad=System::KPadDirector::Instance()->hostController(i);
+    auto* kart=objects->object(i);auto& d=drivers_[i];
+    if(d.bullet){kart->move()->setKartSpeedLimit();d.bullet=false;}
+    const Vec3 pos=native(kart->pos()),forward=native(kart->bodyFront());
+    const bool respawning=kart->status().onBit(Kart::eStatus::BeforeRespawn,Kart::eStatus::InRespawn);
+    d.last=pos;d.respawning=respawning;
+    auto away=[&](unsigned j){return objects->object(j)->status().onBit(Kart::eStatus::BeforeRespawn,Kart::eStatus::InRespawn);};
+    auto flat=[&](Vec3 p){const float dx=p.x-pos.x,dz=p.z-pos.z;return dx*dx+dz*dz;};
+    // Chase: the nearest enemy (the other team) within 5000 units; a target is
+    // kept until it is 7000 away, so CPUs commit to a pursuit.
+    constexpr float Chase=5000.f,Keep=7000.f;
+    if(d.target>=0&&(unsigned(d.target)>=count_||away(unsigned(d.target))||flat(native(objects->object(unsigned(d.target))->pos()))>Keep*Keep))d.target=-1;
+    if(d.target<0){
+        float best=Chase*Chase;
+        for(unsigned j=0;j<count_;++j){
+            if(j%2==i%2||away(j))continue;
+            const float dist=flat(native(objects->object(j)->pos()));
+            if(dist<best){best=dist;d.target=int(j);}
+        }
+    }
+    Vec3 goal=pos+forward*1000.f;
+    if(d.target>=0)goal=native(objects->object(unsigned(d.target))->pos());
+    else if(route_.size()){
+        // Roam the arena's route graph, varying the branch at every junction.
+        if(d.segment>=route_.size()||d.wander>=route_.size()||respawning){
+            d.segment=route_.nearest(pos,forward,i);
+            d.wander=d.segment<route_.size()?route_.successor(d.segment,i+d.routeTicks):EnemyRoute::Invalid;
+        }
+        if(d.wander<route_.size()){
+            const auto& next=route_.point(d.wander);
+            const float reach=std::max(next.width,600.f);
+            if(flat(next.position)<reach*reach){
+                ++d.routeTicks;d.segment=d.wander;
+                d.wander=route_.successor(d.segment,i*7+d.routeTicks*3);
+            }
+            if(d.wander<route_.size())goal=route_.point(d.wander).position;
+        }
+    }
+    float steer=steeringTo(forward,{goal.x-pos.x,0.f,goal.z-pos.z});
+    uint16_t buttons=0;
+    if(racing&&!respawning){
+        buttons=1;
+        const float speed=std::fabs(kart->move()->speed());
+        if(speed<3.f){if(++d.stuck>120){d.reverse=60;d.stuck=0;d.segment=EnemyRoute::Invalid;}}else d.stuck=0;
+        if(d.reverse){--d.reverse;buttons=2;steer=-steer;}
+    }else if(!respawning&&manager->stage()==System::RaceManager::Stage::Countdown&&manager->getCountdownTimer()<24)buttons=1;
+    const int stick=std::clamp(int(std::lround(steer*7.f))+7,0,14);
+    pad->setInputsRawStick(buttons,unsigned(stick),7,System::Trick::None);
 }
 uint16_t RaceGrid::bulletNoEndPlayers() const{
     uint16_t mask=0;

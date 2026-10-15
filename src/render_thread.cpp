@@ -56,7 +56,7 @@ enum : uint16_t {
     CmdBegin=1,CmdEnd,CmdProjection,CmdCourseLighting,CmdRetailFog,CmdRequestBloom,CmdApplyBloom,CmdBottom,
     CmdDraw,CmdDrawAtScreen,CmdMenuIcon,CmdEnvironmentUv,CmdUv1,CmdUvOffset,CmdClearEnvironment,
     CmdRigid,CmdSkin,CmdOverrides,CmdShadows,CmdSparks,CmdEffects,CmdCinema,CmdFade,CmdSprite,CmdFontSprite,
-    CmdMaterialQuads,CmdText,CmdScreenDepth,
+    CmdMaterialQuads,CmdText,CmdScreenDepth,CmdRequestMirror,
 };
 // begun: C3D_FrameBegin already ran on the recording thread (stereo immediate frames).
 struct BeginCommand {static constexpr uint16_t Type=CmdBegin;C3D_Mtx view,projection;bool sync,begun;};
@@ -66,6 +66,7 @@ struct CourseLightingCommand {static constexpr uint16_t Type=CmdCourseLighting;b
 struct RetailFogCommand {static constexpr uint16_t Type=CmdRetailFog;RetailFog fog;};
 struct RequestBloomCommand {static constexpr uint16_t Type=CmdRequestBloom;const CourseBloom* settings;};
 struct ApplyBloomCommand {static constexpr uint16_t Type=CmdApplyBloom;};
+struct RequestMirrorCommand {static constexpr uint16_t Type=CmdRequestMirror;};
 struct BottomCommand {static constexpr uint16_t Type=CmdBottom;};
 struct DrawCommand {
     static constexpr uint16_t Type=CmdDraw;
@@ -283,6 +284,7 @@ void Renderer::execute(FrameList& list){
         case CmdRetailFog:retailFogNow(static_cast<const RetailFogCommand*>(body)->fog);break;
         case CmdRequestBloom:{const auto& c=*static_cast<const RequestBloomCommand*>(body);requestBloomNow(*c.settings);break;}
         case CmdApplyBloom:applyBloom();break;
+        case CmdRequestMirror:mirrorRequested_=true;break;
         case CmdBottom:bottom=true;if(eye+1==eyes)beginBottom();break;
         case CmdDraw:{
             const auto& c=*static_cast<const DrawCommand*>(body);
@@ -445,6 +447,7 @@ void Renderer::beginSourceCamera(const float* view,const float* projection){
     beginRecorded();
 }
 void Renderer::end(){
+    mirrorView_=false;
     if(localRecording_){endLocal();return;}
     if(!recording()){
         endNow();gpuIdle_=false;
@@ -479,8 +482,16 @@ void Renderer::beginBottom(){
 }
 void Renderer::applyBloom(){
     if(recording()){command<ApplyBloomCommand>();return;}
-    if(!bloomFrame_)return;
-    applyBloomNow();
+    if(!bloomFrame_&&!mirrorFrame_)return;
+    presentSceneNow();
+}
+void Renderer::requestMirror(){
+    mirrorView_=true;
+    // The scene target and composite quads are bloom's (made once): create
+    // them with the render thread idle, as requestBloom does.
+    if(!bloomVertices_&&!bloomFailed_){if(recording())drain();initBloom();}
+    if(!recording()){mirrorRequested_=true;return;}
+    command<RequestMirrorCommand>();
 }
 void Renderer::drawWith(const Model& model,const C3D_Mtx& transform,bool backdrop,MaterialBinder material,const void* context,std::size_t contextSize,ShapeVisible visible){
     if(!recording()){

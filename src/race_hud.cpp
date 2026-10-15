@@ -6,6 +6,7 @@
 #include <mkw/item_box_uv.hpp>
 #include <mkw/bomb_blast.hpp>
 #include <mkw/race_balloon.hpp>
+#include <mkw/battle_hud_layout.hpp>
 #include <mkw/bullet_bill.hpp>
 #include <mkw/blooper.hpp>
 #include <mkw/thunder_cloud.hpp>
@@ -184,6 +185,10 @@ struct RaceHud::Impl {
     std::array<Texture,13> ranks;
     std::array<Texture,10> digits;
     std::array<Texture,HudExtraCount> extras;
+    // Battle: the red and blue score digits, the dash and the +/- signs
+    // (red plus, red minus, blue plus, blue minus).
+    std::array<std::array<Texture,10>,2> battleDigits;
+    Texture battleDash;std::array<Texture,4> battleSigns;bool battleReady=false;
     // Player 0's CtrlRaceItemWindow (USA 0x807e4c54) inside CtrlRaceBase's
     // show/hide slide (0x807e2b34): state 1 hidden, 2 showing, 3 shown, 0 hiding.
     struct ItemWindow {
@@ -213,6 +218,19 @@ struct RaceHud::Impl {
 RaceHud::RaceHud():impl_(std::make_unique<Impl>()){}
 RaceHud::~RaceHud()=default;
 void RaceHud::reset(){impl_=std::make_unique<Impl>();}
+bool RaceHud::loadBattle(){
+    auto& m=*impl_;if(m.battleReady)return true;
+    bool ok=true;char path[96];
+    static const char* teams[2]={"red","blue"};
+    for(unsigned t=0;t<2;++t)for(unsigned d=0;d<10;++d){
+        std::snprintf(path,sizeof path,"textures/ui/race/game_image__tt_mario_battle_font_%s_%02u.t3x",teams[t],d);
+        ok&=m.battleDigits[t][d].load(path);
+    }
+    ok&=m.battleDash.load("textures/ui/race/game_image__tt_mario_battle_font_red_haifun.t3x");
+    static const char* signs[4]={"red_plus","red_minus","blue_plus","blue_minus"};
+    for(unsigned i=0;i<4;++i){std::snprintf(path,sizeof path,"textures/ui/race/game_image__tt_%s.t3x",signs[i]);ok&=m.battleSigns[i].load(path);}
+    m.battleReady=ok;return ok;
+}
 bool RaceHud::load(){
     reset();bool valid=true;
     auto model=[](const char* path){auto m=std::make_unique<Model>();if(!path||!m->load(path))m.reset();return m;};
@@ -452,6 +470,62 @@ void RaceHud::drawWorld(Renderer& renderer,const RaceItems& items,Vec3 viewer,un
         }
     }
 }
+// Battle HUD (tools/battle_hud_layout.py): the team score at the top right,
+// the player's points or coins at the bottom left in the team's digits, and
+// the +1/-1 popup at the centre. The score leaves upward, the points downward.
+void RaceHud::drawBattle(Renderer& renderer,float lift){
+    auto& m=*impl_;if(!m.battleReady)return;
+    auto sprite=[&](const Texture& t,float x,float y,float w,float h,float sw,float sh,float alpha){
+        if(!t.ready||w<.05f||h<.05f)return;
+        renderer.drawScreenSpriteRegion(t,x,y,w,h,0,0,sw/float(t.gpu.width),sh/float(t.gpu.height),alpha);
+    };
+    auto digits=[&](unsigned value,char (&text)[4]){return std::snprintf(text,sizeof text,"%u",std::min(value,999u));};
+    const float dx=display::WideExtra;
+    const BattleHudRect red[3]={BattleHudTeam_red_a,BattleHudTeam_red_b,BattleHudTeam_red_c};
+    const BattleHudRect blue[3]={BattleHudTeam_blue_a,BattleHudTeam_blue_b,BattleHudTeam_blue_c};
+    auto teamNumber=[&](unsigned value,unsigned team,const BattleHudRect* slots,bool right){
+        char text[4];const int n=digits(value,text);
+        for(int i=0;i<n;++i){const auto& r=slots[right?3-n+i:i];sprite(m.battleDigits[team][text[i]-'0'],r.x+dx,r.y-lift,r.w,r.h,105,105,1.f);}
+    };
+    teamNumber(battle.red,0,red,true);
+    sprite(m.battleDash,BattleHudTeam_hifun.x+dx,BattleHudTeam_hifun.y-lift,BattleHudTeam_hifun.w,BattleHudTeam_hifun.h,105,105,1.f);
+    teamNumber(battle.blue,1,blue,false);
+    const unsigned team=std::min(battle.team,1u);
+    {
+        const auto& r=BattleHudPoints;char text[4];const int n=digits(battle.points,text);const float size=r.h;
+        for(int i=0;i<n;++i)sprite(m.battleDigits[team][text[i]-'0'],r.x+float(i)*size*.75f,r.y+lift,size,size,105,105,1.f);
+    }
+    // Only single points pop up: the art is the whole "+1" / "-1".
+    if(battle.popup==1||battle.popup==-1){
+        // Pops in over 10 frames, rises a little and fades out at the end.
+        const float a=float(battle.popupAge);
+        const float scale=a<6?.4f+.8f*a/6.f:a<10?1.2f-.2f*(a-6.f)/4.f:1.f;
+        const float alpha=a>45?std::max(0.f,1.f-(a-45.f)/15.f):1.f,rise=a*.25f,cx=display::CenterX-200.f;
+        const unsigned sign=team*2+(battle.popup<0?1:0);
+        auto scaled=[&](const BattleHudRect& r,const Texture& t,float sw,float sh){
+            const float w=r.w*scale,h=r.h*scale;sprite(t,cx+r.x+(r.w-w)*.5f,r.y-rise+(r.h-h)*.5f,w,h,sw,sh,alpha);
+        };
+        // The sign art already reads "+1" / "-1" (tt_red_plus...): no extra digit.
+        scaled(BattleHudPopupSign,m.battleSigns[sign],80,60);
+    }
+}
+void RaceHud::drawBattleTotals(Renderer& renderer,unsigned red,unsigned blue,unsigned winner,unsigned tick){
+    auto& m=*impl_;if(!m.battleReady)return;
+    const float cx=display::CenterX-200.f;
+    const float pulse=1.f+.12f*std::sin(float(tick)*.15f);
+    auto sprite=[&](const Texture& t,const BattleHudRect& r,float scale){
+        if(!t.ready)return;
+        const float w=r.w*scale,h=r.h*scale;
+        renderer.drawScreenSpriteRegion(t,cx+r.x+(r.w-w)*.5f,r.y+(r.h-h)*.5f,w,h,0,0,105.f/float(t.gpu.width),105.f/float(t.gpu.height),1.f);
+    };
+    const BattleHudRect reds[3]={BattleHudTotal_red_a,BattleHudTotal_red_b,BattleHudTotal_red_c};
+    const BattleHudRect blues[3]={BattleHudTotal_blue_a,BattleHudTotal_blue_b,BattleHudTotal_blue_c};
+    auto number=[&](unsigned value,unsigned team,const BattleHudRect* slots,bool right){
+        char text[4];const int n=std::snprintf(text,sizeof text,"%u",std::min(value,999u));
+        for(int i=0;i<n;++i)sprite(m.battleDigits[team][text[i]-'0'],slots[right?3-n+i:i],winner==team?pulse:1.f);
+    };
+    number(red,0,reds,true);sprite(m.battleDash,BattleHudTotal_hifun,1.f);number(blue,1,blues,false);
+}
 void RaceHud::drawOverlay(Renderer& renderer,const RaceItems& items,unsigned stage,unsigned timer,unsigned rank,unsigned lap,bool finished,unsigned tick,int finishFrame,float exitSlide){
     const auto& held=items.hud(0);
     auto sprite=[&](const Texture& texture,const RaceSprite& art,HudRect rect,float alpha=1.f,uint32_t tint=0xffffffffu){
@@ -525,7 +599,9 @@ void RaceHud::drawOverlay(Renderer& renderer,const RaceItems& items,unsigned sta
             const auto& n=BalloonNames[character];
             const float tw=n.width*BalloonFontScale[0]*Unit,th=n.height*BalloonFontScale[1]*Unit;
             const float right=ax+(BalloonText[0]+BalloonText[2]*.5f)*Unit,cy=ay-BalloonText[1]*Unit;
-            renderer.drawScreenSpriteRegion(impl_->names[character],right-tw,cy-th*.5f,tw,th,0,0,n.u,n.v,b.alpha);
+            // Battle: names in the racer's team colour (chara_name_text_color_red/blue).
+            const uint32_t nameColor=!battle.active?0xffffffffu:b.shown%2?0x78a8ffffu:0xff7070ffu;
+            renderer.drawScreenSpriteRegion(impl_->names[character],right-tw,cy-th*.5f,tw,th,0,0,n.u,n.v,b.alpha,nameColor);
         }
     }
     renderer.setScreenDepth(hudDepth);
@@ -645,10 +721,13 @@ void RaceHud::drawOverlay(Renderer& renderer,const RaceItems& items,unsigned sta
     const float lapLift=exitLift(.8f);
     // The lap counter is right-anchored: it keeps its corner on a wider canvas.
     auto lifted=[&](HudRect r,float dy){r.x+=display::WideExtra;r.y+=dy;return r;};
+    if(battle.active)drawBattle(renderer,exitLift(1.f));
+    else{
     gold(impl_->extras[HudLap],HudExtras[HudLap],lifted(HudLapLabel,-lapLift));gold(impl_->extras[HudSlash],HudExtras[HudSlash],lifted(HudLapSlash,-lapLift));
     lap=std::clamp(lap,1u,3u);
     gold(impl_->digits[lap],HudDigits[lap],lifted(HudLapCurrent,-lapLift));
     gold(impl_->digits[3],HudDigits[3],lifted(HudLapTotal,-lapLift));
+    }
     // Speedometer (not in the original): the player's speed in the game's own
     // units, which Wii speedometer mods label km/h. Bottom right, the one free
     // corner, in the lap counter's gold digits; leaves downward with the HUD.
@@ -662,6 +741,7 @@ void RaceHud::drawOverlay(Renderer& renderer,const RaceItems& items,unsigned sta
     }
     rank=std::clamp(rank,1u,12u);
     auto& rs=impl_->rankSpin;
+    if(!battle.active){
     if(!rs.shown){rs.shown=rank;rs.lastTick=tick;}
     for(unsigned elapsed=std::min(tick-rs.lastTick,30u);elapsed;--elapsed){
         if(rank!=rs.shown){if(rs.anim==2){rs.anim=0;rs.frame=0;}else if(rs.anim==1)rs.shown=rank;}
@@ -700,6 +780,7 @@ void RaceHud::drawOverlay(Renderer& renderer,const RaceItems& items,unsigned sta
         renderer.drawScreenFontSprite(impl_->ranks[shown],cx-w*.5f,cy-h*.5f,w,h,art.u,art.v,echoAlpha,0xffffffffu,0xffffffffu,0xffffff00u,0xffffffffu);
     }
     renderer.setScreenDepth(hudDepth);
+    }
     auto count=[&](HudExtra which,unsigned frame){
         const auto& art=HudExtras[which];
         renderer.setScreenDepth(renderer.stereoLayer(stereo::CountdownLayer));

@@ -222,7 +222,7 @@ bool Renderer::retailCombiners(const Submesh& s,const C3D_Mtx& modelView,bool ba
             static const float factor[]={1.f,2.f,4.f,.5f};
             uint32_t add=0;
             for(unsigned i=0;i<3;++i){
-                const float c=additive?float((additiveRgb>>(8*i))&255):unit(s.add,i)*255.f;
+                const float c=additive&&!subtractAdditive_?float((additiveRgb>>(8*i))&255):unit(s.add,i)*255.f;
                 add|=uint32_t(std::min(255.f,std::floor(c*factor[albedoScale]+.5f)))<<(8*i);
             }
             e=next();C3D_TexEnvColor(e,add|0xff000000u);
@@ -235,11 +235,12 @@ bool Renderer::retailCombiners(const Submesh& s,const C3D_Mtx& modelView,bool ba
             e=next();C3D_TexEnvSrc(e,C3D_RGB,GPU_TEXTURE2,GPU_PREVIOUS,GPU_PREVIOUS);
             C3D_TexEnvOpRgb(e,GPU_TEVOP_RGB_SRC_COLOR,GPU_TEVOP_RGB_SRC_ALPHA,GPU_TEVOP_RGB_SRC_COLOR);C3D_TexEnvFunc(e,C3D_RGB,GPU_MULTIPLY_ADD);
         }
-        if(additive&&!(s.lighting&retail::AlbedoAdd)){
+        if(additive&&(!(s.lighting&retail::AlbedoAdd)||subtractAdditive_)){
             // Star animates GX C1. Rebuilding the light-texture stages must
             // retain it, before fog, without changing the material alpha.
+            // Ink subtracts instead.
             e=next();C3D_TexEnvColor(e,additiveRgb);
-            C3D_TexEnvSrc(e,C3D_RGB,GPU_PREVIOUS,GPU_CONSTANT);C3D_TexEnvFunc(e,C3D_RGB,GPU_ADD);
+            C3D_TexEnvSrc(e,C3D_RGB,GPU_PREVIOUS,GPU_CONSTANT);C3D_TexEnvFunc(e,C3D_RGB,subtractAdditive_?GPU_SUBTRACT:GPU_ADD);
             C3D_TexEnvSrc(e,C3D_Alpha,GPU_PREVIOUS);C3D_TexEnvFunc(e,C3D_Alpha,GPU_REPLACE);
         }
         if(fog){
@@ -271,7 +272,7 @@ bool Renderer::retailCombiners(const Submesh& s,const C3D_Mtx& modelView,bool ba
         // The additive (CLR0/Star) stage moves before fog: GX fog follows the TEV.
         auto* add=C3D_GetTexEnv(4);C3D_TexEnvColor(add,additiveRgb);
         C3D_TexEnvSrc(add,C3D_RGB,GPU_PREVIOUS,GPU_CONSTANT);C3D_TexEnvOpRgb(add,GPU_TEVOP_RGB_SRC_COLOR,GPU_TEVOP_RGB_SRC_COLOR);
-        C3D_TexEnvFunc(add,C3D_RGB,GPU_ADD);
+        C3D_TexEnvFunc(add,C3D_RGB,subtractAdditive_?GPU_SUBTRACT:GPU_ADD);
     }
     auto* e=C3D_GetTexEnv(5);C3D_TexEnvInit(e);C3D_TexEnvColor(e,fogColor);
     C3D_TexEnvSrc(e,C3D_RGB,GPU_CONSTANT,GPU_PREVIOUS,GPU_TEXTURE2);

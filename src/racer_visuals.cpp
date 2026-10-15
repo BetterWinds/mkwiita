@@ -144,7 +144,8 @@ void RacerVisuals::Impl::prepareRacer(unsigned i){
     auto frustum=view.model(seated);
     out.draw=true;out.body=transform;out.seated=seated;
     out.driverVisible=!tiny(*r->driver,seated)&&r->animation->apply(*r->driver,r->animation->find(name),frame,tick,expression,faceFrame,&frustum);
-    out.additive=starMaterialColor(items.hud(i+1).star);
+    // Blooper ink paints an inked racer dark (unless a Star outshines it).
+    {const auto& hud=items.hud(i+1);out.additive=hud.ink&&!hud.inkDelay&&!hud.star?Renderer::InkColor:starMaterialColor(hud.star);}
     out.bodyVisible=animate(r->bodyAnimation.get(),*r->body,r->bodyClock,false,transform);
     out.wheels=r->vehicle.wheelCount();
     for(unsigned w=0;w<out.wheels;++w){

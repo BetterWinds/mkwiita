@@ -109,6 +109,8 @@ struct Visual {
     // Observed Kinoko state and the tick it was first seen (clip timing).
     int lastState=-1;
     unsigned stateTick=0;
+    // Coin Runners: a collected coin stays hidden until this tick.
+    unsigned hiddenUntil=0;
 };
 // One course-object draw as ObjectDraw prepared it (pose, materials, CPU
 // skinning done), replayed in order on the rendering thread.

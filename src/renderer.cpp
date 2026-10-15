@@ -464,11 +464,12 @@ void Renderer::beginFrame(){
         if(execStereo_.active())C3D_RenderTargetClear(targetRight_,C3D_CLEAR_ALL,0x071326FF,0);
     }
     bloomFrame_=bloomRequested_&&initBloom();bloomRequested_=false;bloomCount_=0;
-    if(bloomFrame_){
+    mirrorFrame_=mirrorRequested_&&initBloom();mirrorRequested_=false;
+    if(bloomFrame_||mirrorFrame_){
         if(!eye_){
             // Memory fills run in queue order, ahead of this frame's command list.
             C3D_RenderTargetClear(sceneTarget_,C3D_CLEAR_ALL,0x071326FF,0);
-            for(auto* t:bloomTarget_)C3D_RenderTargetClear(t,C3D_CLEAR_COLOR,0,0);
+            if(bloomFrame_)for(auto* t:bloomTarget_)C3D_RenderTargetClear(t,C3D_CLEAR_COLOR,0,0);
         }else{
             // The right eye reuses the scene target the left eye's bloom has
             // read: queue the left eye's commands first, then the clear. The
@@ -605,6 +606,7 @@ void Renderer::resetMaterialUniforms(){
 void Renderer::drawNow(const Model& model,const Vertex* vertices,const C3D_Mtx& transform,bool backdrop,MaterialBinder material,void* context,ShapeVisible visible){
     flushSprites();
     const uint32_t animationFrame=execFrame_,additiveColor=execAdditive_;
+    subtractAdditive_=additiveColor&&(additiveColor&0xff)==0x01;
     C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER,projectionLoc_,&projection_);
     C3D_Mtx mv;Mtx_Multiply(&mv,&view_,&transform);C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER,modelViewLoc_,&mv);
     auto* attr=C3D_GetAttrInfo();AttrInfo_Init(attr);
@@ -825,7 +827,7 @@ void Renderer::drawNow(const Model& model,const Vertex* vertices,const C3D_Mtx& 
             const uint32_t c=additiveColor;
             auto* star=C3D_GetTexEnv(5);C3D_TexEnvInit(star);
             C3D_TexEnvColor(star,c?(c>>24)|((c>>8)&0xff00)|((c<<8)&0xff0000):o->add&0xffffff);
-            C3D_TexEnvSrc(star,C3D_RGB,GPU_PREVIOUS,GPU_CONSTANT);C3D_TexEnvFunc(star,C3D_RGB,GPU_ADD);
+            C3D_TexEnvSrc(star,C3D_RGB,GPU_PREVIOUS,GPU_CONSTANT);C3D_TexEnvFunc(star,C3D_RGB,c&&subtractAdditive_?GPU_SUBTRACT:GPU_ADD);
         }
         if(menuIconLayer_){
             // ButtonMachine's native capture remap has nonnegative C1-C0;
@@ -1079,6 +1081,8 @@ bool Renderer::projectTop(Vec3 p,float& x,float& y,float& viewZ) const{
     if(std::fabs(det)<1e-9f)return false;
     const float rx=nx-o.r[0].w,ry=ny-o.r[1].w;
     x=(rx*d-b*ry)/det;y=(a*ry-c*rx)/det;
+    // Mirror frames present the scene flipped: overlays anchored to it follow.
+    if(mirrorView_)x=mainScreenWidth_-x;
     return true;
 }
 namespace {
@@ -1531,7 +1535,8 @@ void Renderer::bloomQuad(const C3D_Tex& source,unsigned sourceWidth,unsigned sou
     if(bloomCount_+6>kBloomVertices)return;
     Vertex* v=bloomVertices_+bloomCount_;
     const float sw=float(sourceWidth),sh=float(sourceHeight),tw=float(source.width),th=float(source.height);
-    auto uv=[&](float x,float y,float* out){out[0]=(sh-y*sh/height-dv)/tw;out[1]=(sw-x*sw/width-du)/th;};
+    // Mirror frames composite the scene with its landscape X reversed.
+    auto uv=[&](float x,float y,float* out){if(flipComposite_)x=width-x;out[0]=(sh-y*sh/height-dv)/tw;out[1]=(sw-x*sw/width-du)/th;};
     const float corners[6][2]={{0,0},{width,0},{width,height},{0,0},{width,height},{0,height}};
     Vertex quad[6];
     for(int i=0;i<6;++i){
@@ -1539,7 +1544,8 @@ void Renderer::bloomQuad(const C3D_Tex& source,unsigned sourceWidth,unsigned sou
         uv(corners[i][0],corners[i][1],quad[i].uv);
         if(secondWidth){
             quad[i].uv1[0]=(float(secondHeight)-corners[i][1]*float(secondHeight)/height)/tw;
-            quad[i].uv1[1]=(float(secondWidth)-corners[i][0]*float(secondWidth)/width)/th;
+            const float x=flipComposite_?width-corners[i][0]:corners[i][0];
+            quad[i].uv1[1]=(float(secondWidth)-x*float(secondWidth)/width)/th;
         }
     }
     // Each frame repeats the same quads in the same slots: rewrite (and flush)
@@ -1596,6 +1602,8 @@ void Renderer::applyBloomNow(){
     ring(0,W4,60,1,W4,60,0,0,false);
     ring(1,W4,60,2,W8,30,1,0,false);
     ring(1,W4,60,2,W8,30,1,1,true);
+    // The blur works in scene space; only the composite to the screen flips.
+    flipComposite_=mirrorFrame_;
     bloomPass(topTarget(),W,240);
     e0=env();C3D_TexEnvSrc(e0,C3D_Both,GPU_TEXTURE0);C3D_TexEnvFunc(e0,C3D_Both,GPU_REPLACE);
     blend(false);bloomQuad(sceneTex_,W,240,W,240,0,0);
@@ -1612,14 +1620,34 @@ void Renderer::applyBloomNow(){
     C3D_TexBind(1,&bloomTex_[2]);
     C3D_AlphaBlend(GPU_BLEND_ADD,GPU_BLEND_ADD,GPU_ONE_MINUS_SRC_COLOR,GPU_ONE,GPU_ONE_MINUS_SRC_ALPHA,GPU_ONE);
     bloomQuad(bloomTex_[1],W4,60,W,240,0,0,W8,30);
+    flipComposite_=false;
     for(int unit=0;unit<3;++unit)C3D_TexBind(unit,nullptr);
     auto* env0=env();C3D_TexEnvSrc(env0,C3D_Both,GPU_TEXTURE0,GPU_PRIMARY_COLOR);C3D_TexEnvFunc(env0,C3D_Both,GPU_MODULATE);
     C3D_AlphaBlend(GPU_BLEND_ADD,GPU_BLEND_ADD,GPU_SRC_ALPHA,GPU_ONE_MINUS_SRC_ALPHA,GPU_ONE,GPU_ONE_MINUS_SRC_ALPHA);
     C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER,projectionLoc_,&projection_);
     spriteStateReady_=false;
 }
-void Renderer::endEyeNow(){
+void Renderer::presentSceneNow(){
     if(bloomFrame_)applyBloomNow();
+    else if(mirrorFrame_){
+        // Mirror without bloom: the scene target to the screen, flipped.
+        flushSprites();
+        constexpr unsigned W=display::TargetHeight;
+        bloomPass(topTarget(),W,240);
+        C3D_TexEnvBufUpdate(C3D_Both,0);for(int i=0;i<6;++i)C3D_TexEnvInit(C3D_GetTexEnv(i));
+        auto* e0=C3D_GetTexEnv(0);C3D_TexEnvSrc(e0,C3D_Both,GPU_TEXTURE0);C3D_TexEnvFunc(e0,C3D_Both,GPU_REPLACE);
+        C3D_AlphaBlend(GPU_BLEND_ADD,GPU_BLEND_ADD,GPU_ONE,GPU_ZERO,GPU_ONE,GPU_ZERO);
+        flipComposite_=true;bloomQuad(sceneTex_,W,240,W,240,0,0);flipComposite_=false;
+        C3D_TexBind(0,nullptr);
+        auto* env0=C3D_GetTexEnv(0);C3D_TexEnvSrc(env0,C3D_Both,GPU_TEXTURE0,GPU_PRIMARY_COLOR);C3D_TexEnvFunc(env0,C3D_Both,GPU_MODULATE);
+        C3D_AlphaBlend(GPU_BLEND_ADD,GPU_BLEND_ADD,GPU_SRC_ALPHA,GPU_ONE_MINUS_SRC_ALPHA,GPU_ONE,GPU_ONE_MINUS_SRC_ALPHA);
+        C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER,projectionLoc_,&projection_);
+        spriteStateReady_=false;
+    }
+    mirrorFrame_=false;
+}
+void Renderer::endEyeNow(){
+    if(bloomFrame_||mirrorFrame_)presentSceneNow();
     flushSprites();
     if(bottomPass_){
         // The bottom screen's quads were written in this pass (it runs once).
@@ -1630,7 +1658,7 @@ void Renderer::endEyeNow(){
 void Renderer::beginBottomNow(){
     if(!bottomTarget_||bottomPass_)return;
     // The top screen is complete: its bloom composite and last sprite run first.
-    if(bloomFrame_)applyBloomNow();
+    if(bloomFrame_||mirrorFrame_)presentSceneNow();
     flushSprites();
     topSpriteCount_=spriteCount_;
     spriteBase_=text_+kTextVertexLimit;spriteCapacity_=kBottomSpriteCapacity;

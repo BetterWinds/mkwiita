@@ -110,7 +110,7 @@ enum class ItemEffect : uint8_t { Mushroom, Spin, Launch, Explosion, Shrink, Cru
 // position in `direction` and its model scale. PowStomp carries the stomp in `frames` and
 // action 1 for a target, 0 for the user. Bolt (KartEffect +0x4c / +0x50 reset) has frames 0
 // for a Lightning bolt and 1 for the Thunder Cloud's strike.
-struct ItemEvent { ItemEffect effect; uint8_t player; uint16_t frames=0; Vec3 direction{}; int8_t action=-1; float scale=1; };
+struct ItemEvent { ItemEffect effect; uint8_t player; uint16_t frames=0; Vec3 direction{}; int8_t action=-1; float scale=1; uint8_t source=0xff; };
 struct ItemSurface { Vec3 correction{}, floorNormal{}, wallNormal{}; bool kill=false; bool cannon=false; };
 // Sound cues: where retail item objects and holders call Audio::ItemActor, the
 // holder's KartActor or its CharacterActor (docs/AUDIO_SOURCE.md "Items").
@@ -157,7 +157,12 @@ public:
     /// native Kinoko link.
     void setKarts(ItemKarts* karts);
     ItemKarts& karts() { return *karts_; }
-    bool loadOdds(const void* data,size_t size){return odds_.load(data,size,2,3);}
+    bool loadOdds(const void* data,size_t size,unsigned localTable=2,unsigned cpuTable=3){return odds_.load(data,size,localTable,cpuTable);}
+    /// Battle (before resetFromCourse): 0 races, 1 Balloon Battle, 2 Coin Runners. Battle
+    /// rolls use ItemSlot.bin's battle tables (6/7, 8/9), whose three columns are the
+    /// racer's team winning, tied or losing (setOddsColumn, 1..3, each step).
+    void setBattle(unsigned mode){battleOdds_=mode;}
+    void setOddsColumn(unsigned player,unsigned column){if(player<MaxRacers)oddsColumn_[player]=uint8_t(column);}
     bool oddsReady()const{return odds_.ready();}
     bool loadShellRoute(const void* bytes,size_t size,unsigned course=0xffff){shellCourse_=course;return shellRoute_.load(bytes,size);}
     const ShellRoute& shellRoute()const{return shellRoute_;}
@@ -182,6 +187,8 @@ public:
     // Every Mushroom / Golden Mushroom use, for per-press boost presentation.
     uint16_t mushroomUses(unsigned player) const { return mushroomUses_[player<MaxRacers?player:0]; }
     unsigned rank(unsigned player) const;
+    // The odds row: race position, or the battle column.
+    unsigned oddsRank(unsigned player) const{return battleOdds_?std::max(1u,unsigned(oddsColumn_[player<MaxRacers?player:0])):rank(player);}
     uint32_t frame() const { return frame_; }
     bool invincible(unsigned player) const;
     uint16_t bulletPlayers() const;
@@ -201,6 +208,7 @@ public:
     void cloudBump(unsigned attacker,unsigned victim,const ItemRacer& target);
     static bool segmentHits(Vec3 from,Vec3 to,Vec3 center,float radius);
 private:
+    unsigned battleOdds_=0;std::array<uint8_t,MaxRacers> oddsColumn_{};
     ItemOdds odds_;
     ShellRoute shellRoute_;
     unsigned shellCourse_=0xffff;

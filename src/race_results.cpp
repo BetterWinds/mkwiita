@@ -65,6 +65,10 @@ void RaceResultsFlow::fill(const RaceResultEntry* byPosition,unsigned count,bool
  for(unsigned i=0;i<count_;++i){rows_[i]=byPosition[i];counts_[i].fill(rows_[i].previous,rows_[i].gain);}
 }
 
+void RaceResultsFlow::showTotals(const RaceResultEntry* rows,unsigned count){
+ reset();fill(rows,count,true);sortTotals();enter(RaceFlowPhase::TotalIn);timeout_=~0u;
+}
+
 void RaceResultsFlow::sortTotals(){
  // GPVSLeaderboardTotal::FillRows / ComparePlayers 0x8085A5F4: descending
  // total; on a tie a human ranks first, then this race's points decide.

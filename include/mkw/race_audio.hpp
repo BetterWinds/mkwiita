@@ -78,6 +78,7 @@ struct RaceAudioFrame {
  std::uint8_t raceState = 0;     // RaceMgr state from RaceSound
  std::uint8_t alteration = 3;    // ItemAlterationMgr state (0 Mega, 1 Star, 2 shrunk, 3 none)
  std::uint8_t engineClass = 2;   // 0 50cc, 1 100cc, 2 150cc
+ bool mirror = false;            // mirror mode swaps the stereo pan
  std::uint8_t karts = 0;
  std::uint8_t mode = 1;          // RaceConfig game mode (0 GP, 1 VS, 3 battle)
  std::uint16_t goalVoice[3]{};   // the local racer's goal voices (TOP, GOD, BAD), 0: none

@@ -50,16 +50,24 @@ public:
     static float steeringTo(Vec3 forward,Vec3 offset);
     // QA autopilot: player zero follows the CPU route like the other racers.
     bool driveLocal=false;
+    bool battleArena() const{return battleArena_;}
+    // Grid slots (0 = pole) by racer for the next configure(), as retail starts
+    // a Grand Prix's races in the previous race's finishing order; 0xff keeps
+    // the racer index. Not a permutation of 0..count-1: ignored.
+    void setStartOrder(const std::array<uint8_t,Capacity>& slots){startSlots_=slots;}
+    void clearStartOrder(){startSlots_.fill(0xff);}
     CpuAi& ai(){return ai_;}
 private:
     void forwardBumps();
-    struct Driver {CpuSpeedState speedPolicy{};float nativeSpeed=70,desiredSpeed=70;unsigned segment=EnemyRoute::Invalid,bulletSegment=EnemyRoute::Invalid,stuck=0,reverse=0,recoveries=0,routeTicks=0;Vec3 last{};float bulletTurn=.03f;bool respawning=false,bullet=false;};
+    void battleDrive(unsigned racer,bool racing);
+    struct Driver {CpuSpeedState speedPolicy{};float nativeSpeed=70,desiredSpeed=70;unsigned segment=EnemyRoute::Invalid,bulletSegment=EnemyRoute::Invalid,wander=EnemyRoute::Invalid;int target=-1;unsigned stuck=0,reverse=0,recoveries=0,routeTicks=0;Vec3 last{};float bulletTurn=.03f;bool respawning=false,bullet=false;};
     EnemyRoute route_,bulletRoute_;
     CpuAi ai_;
     std::array<Driver,Capacity> drivers_{};
     std::array<unsigned,Capacity> choices_{},ranks_{},laps_{};
     std::array<bool,Capacity> finished_{};
     CpuSpeedParam speedParam_{};bool speedParamReady_=false;float lapDistance_=0;
-    unsigned count_=1;
+    unsigned count_=1;bool battleArena_=false;
+    std::array<uint8_t,Capacity> startSlots_{0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff};
 };
 }

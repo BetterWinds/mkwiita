@@ -9,7 +9,7 @@ namespace mkw {
 class ItemOdds {
 public:
     bool load(const void* bytes,std::size_t size,unsigned localTable,unsigned cpuTable){
-        tables_={};ready_=false;
+        tables_={};rows_={12,12};ready_=false;
         if(!bytes||size<1)return false;
         const auto* data=static_cast<const uint8_t*>(bytes);std::size_t offset=1;unsigned found=0;
         for(unsigned table=0;table<data[0];++table){
@@ -17,8 +17,11 @@ public:
             const unsigned ranks=data[offset++],items=data[offset++];
             if(!ranks||!items||std::size_t(ranks)*items>size-offset)return false;
             for(unsigned role=0;role<2;++role)if(table==(role?cpuTable:localTable)){
-                if(ranks!=12||items!=19)return false;
-                for(unsigned item=0;item<19;++item)for(unsigned rank=0;rank<12;++rank)
+                // Race tables have 12 positions; battle tables 3 columns
+                // (the racer's team winning, tied, losing).
+                if((ranks!=12&&ranks!=3)||items!=19)return false;
+                rows_[role]=ranks;
+                for(unsigned item=0;item<19;++item)for(unsigned rank=0;rank<ranks;++rank)
                     tables_[role][rank][item]=data[offset+item*ranks+rank];
                 ++found;
             }
@@ -27,9 +30,10 @@ public:
         ready_=found==2&&offset==size;return ready_;
     }
     bool ready() const{return ready_;}
-    const std::array<uint8_t,19>& weights(bool cpu,unsigned rank)const{return tables_[cpu?1:0][std::clamp(rank,1u,12u)-1];}
+    const std::array<uint8_t,19>& weights(bool cpu,unsigned rank)const{return tables_[cpu?1:0][std::clamp(rank,1u,rows_[cpu?1:0])-1];}
 private:
     std::array<std::array<std::array<uint8_t,19>,12>,2> tables_{};
+    std::array<unsigned,2> rows_{12,12};
     bool ready_=false;
 };
 }

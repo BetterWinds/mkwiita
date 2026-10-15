@@ -75,9 +75,9 @@ public:
  // The race runtime starts races with all 24 retail drivers and all twelve
  // machines each. Other choices stay browsable, but accepting one reports
  // "Not available" on its own page rather than at the final confirmation.
- static bool raceMode(UiMode mode){return mode==UiMode::VS||mode==UiMode::GrandPrix||mode==UiMode::TimeTrials;}
- // Only the original 150cc physics runs (Kinoko's class rate 1.0).
- static bool raceEngineClass(UiEngineClass c){return c!=UiEngineClass::Mirror;}
+ static bool raceMode(UiMode mode){return mode==UiMode::VS||mode==UiMode::GrandPrix||mode==UiMode::TimeTrials||mode==UiMode::Battle;}
+ // Mirror races 150cc with the presentation flipped and steering negated.
+ static bool raceEngineClass(UiEngineClass c){return c<=UiEngineClass::Mirror;}
  static bool raceDriver(unsigned driver){return driver<24;}
  static bool raceVehicle(unsigned choice){return choice<12;}
  bool supportsRace()const;

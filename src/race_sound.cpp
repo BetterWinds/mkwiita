@@ -165,7 +165,7 @@ void RaceSound::begin(const Setup& s) {
  alteration_ = 3; wasMega_ = wasStar_ = false; wobble_ = 0;
  alterVolume_ = fanfareVolume_ = bgmVolume_ = bgmPitch_ = 1; postedBgmVolume_ = postedBgmPitch_ = -1; postedSlot_ = -1;
  bgm_ = Bgm{};
- triggers_.reset(s.course, false);   // no mirror mode in this port
+ triggers_.reset(s.course, s.mirror);
  introLoaded_ = false; introShot_ = -1;
  for (auto& t : stems_) t = AudioTrack{};
  stemCount_ = 0; stemSound_ = 0xFFFFFFFFu;
@@ -574,7 +574,7 @@ void RaceSound::step(const Frame& f, RaceAudioFrame* actors) {
   // Retail loads the race groups before the scene runs; here course object
   // calls wait until they are in rather than failing each frame.
   if (!introLoaded_) a.objectSounds = 0;
-  a.raceState = std::uint8_t(state_); a.alteration = std::uint8_t(alteration_); a.engineClass = std::uint8_t(std::min(setup_.engineClass, 2u));
+  a.raceState = std::uint8_t(state_); a.alteration = std::uint8_t(alteration_); a.engineClass = std::uint8_t(std::min(setup_.engineClass, 2u)); a.mirror = setup_.mirror;
   // A frame dropped by a full ring keeps its cues for the next one.
   if (layer_.push(a)) { for (auto& k : a.kart) { k.cues = 0; k.bumpedBy = 0; } a.itemSounds = 0; a.ambienceOps = 0; a.objectSounds = 0; }
  }

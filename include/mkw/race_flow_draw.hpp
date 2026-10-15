@@ -23,6 +23,8 @@ struct FlowOccluder {float x0,y0,x1,y1,z;};
 // pane state costs one batch.
 class FlowDrawer {
 public:
+ // The award ceremony's standings: two columns of six (AwardItemWin Pos0..11).
+ bool award=false;
  void reset();
  void step(const RaceResultsFlow& flow); // one 60 Hz tick
  void draw(const RaceResultsFlow& flow,FlowSink sink,void* context);
@@ -36,7 +38,8 @@ private:
  Batch batch;
  // Working state kept off the stack: the race loop runs on the main thread,
  // whose frame (main) already uses most of its 32 KB.
- std::array<FlowPose,2> poses{};FlowPose buttonPose{};
+ // Row looks: [team][human], team 0 none, 1 red, 2 blue (battle).
+ std::array<FlowPose,6> poses{};FlowPose buttonPose{};
  std::array<FlowOccluder,FlowPose::MaxPanes> occluders{};
 };
 }

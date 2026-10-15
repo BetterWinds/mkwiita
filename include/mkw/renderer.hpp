@@ -284,6 +284,11 @@ public:
     // CourseBloom is a generated static resource; it outlives deferred frames.
     void requestBloom(const CourseBloom& settings);
     void applyBloom();
+    // Mirror mode for the next frame only (before begin()): the 3D scene renders
+    // off screen like bloom and applyBloom() presents it flipped left to right.
+    // Geometry, culling and stencil shadows are untouched; the HUD drawn after
+    // applyBloom() is not flipped.
+    void requestMirror();
     // Live sparks and effect particles are copied when recorded; their quads
     // are built where the frame is drawn. Specs and textures must outlive it.
     void drawSparks(const DriftEffects& effects,const Texture* textures);
@@ -346,6 +351,9 @@ public:
     // RRGGBB00 added after the model's material colour, preserving texture alpha.
     // Zero outside Star racer draws; no model/texture mutation is involved.
     uint32_t additiveColor=0;
+    // additiveColor with alpha 0x01 subtracts its colour instead (Blooper ink:
+    // an inked racer's kart and driver are painted dark).
+    static constexpr uint32_t InkColor=0xb4b4b401u;
 private:
     // Recording (src/render_thread.cpp).
     struct FrameList;
@@ -439,6 +447,8 @@ private:
     void drawEffectsImmediate(RaceEffects& effects,const Texture* textures);
     void requestBloomNow(const CourseBloom& settings);
     void applyBloomNow();
+    // The scene target's composite to the top screen (bloom's, or mirror's alone).
+    void presentSceneNow();
     void shadowVolumesNow(const ShadowVolume* volumes,unsigned count,float darkness);
     void environmentUvNow(const C3D_Mtx& transform,const float (&uv)[6]);
     void uv1TransformNow(const float (&uv)[6]);
@@ -452,6 +462,7 @@ private:
     Vertex* reserveOverlay(int count);
     Stats stats_{};
     uint32_t execFrame_=0,execAdditive_=0;
+    bool subtractAdditive_=false; // this draw's additive colour subtracts (ink)
     C3D_RenderTarget* target_=nullptr;
     // Right eye (VRAM, New 3DS with a 3D screen only; linked to GFX_RIGHT).
     C3D_RenderTarget* targetRight_=nullptr;
@@ -512,6 +523,11 @@ private:
     Vertex* bloomVertices_=nullptr;
     unsigned bloomCount_=0;
     bool bloomRequested_=false,bloomFrame_=false,bloomFailed_=false;
+    // Mirror: requested per frame; the frame renders to sceneTarget_; bloomQuad
+    // flips its landscape X while compositing that target to the screen.
+    bool mirrorRequested_=false,mirrorFrame_=false,flipComposite_=false;
+    // Recording side: this frame is mirrored (projectTop flips screen X to match).
+    bool mirrorView_=false;
     const CourseBloom* bloomSettings_=nullptr;
     C3D_Tex white_{};
     static constexpr int kOverlayCapacity=48;

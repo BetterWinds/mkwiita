@@ -10,6 +10,9 @@ tt_start_line_22) is cooked beside it.
 Writes build/race-map/textures/race_minimap_NN.t3x with race_minimap_NN.bin
 (little endian: x0, z0, world units per texel, content width and height, padded
 width and height) and race_minimap_start.t3x. tools/package_sd.py packs them.
+
+Every catalog entry is cooked, the ten battle arenas (32..41) included: an
+arena's only map is this one (src/race_bottom_screen.cpp, arena mode).
 """
 import json
 import struct

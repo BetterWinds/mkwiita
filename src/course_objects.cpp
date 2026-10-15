@@ -151,6 +151,9 @@ struct CourseObjects::Impl {
     std::array<bool,6> escalatorWritten{};
     std::vector<C3D_Mtx> palms;
     int course=-1;
+    // Arena coin placements exist for Coin Runners only (retail spawns them there).
+    bool coins=false;
+    std::vector<unsigned> coinVisuals; // indices into visuals of arena coins
     ObjectAssets assets;
     std::vector<Visual> visuals,suspendedVisuals;
     bool graphicsSuspended=false;
@@ -221,6 +224,13 @@ bool CourseObjects::resumeGraphics(){
     d.suspendedVisuals.clear();d.graphicsSuspended=false;d.recorded=false;return true;
 }
 void CourseObjects::invalidate(){impl_->linked=false;impl_->visuals.clear();}
+void CourseObjects::setCoins(bool visible){if(impl_->coins!=visible){impl_->coins=visible;invalidate();}}
+unsigned CourseObjects::coinCount() const{return impl_->linked?unsigned(impl_->coinVisuals.size()):0;}
+Vec3 CourseObjects::coinPosition(unsigned coin) const{
+    const auto& p=impl_->visuals[impl_->coinVisuals[coin]].geo->pos();return {p.x,p.y,p.z};
+}
+bool CourseObjects::coinAvailable(unsigned coin,unsigned tick) const{return tick>=impl_->visuals[impl_->coinVisuals[coin]].hiddenUntil;}
+void CourseObjects::collectCoin(unsigned coin,unsigned tick){impl_->visuals[impl_->coinVisuals[coin]].hiddenUntil=tick+CoinRespawnTicks;}
 bool CourseObjects::loadCoconut(){
     auto& d=*impl_;
     d.palm=std::make_unique<Model>();
@@ -249,7 +259,7 @@ bool CourseObjects::loadCourse(int courseId){
     return d.assets.load(courseId);
 }
 void CourseObjects::Impl::link(){
-    visuals.clear();linked=true;
+    visuals.clear();coinVisuals.clear();linked=true;
     const auto* map=K::System::CourseMap::Instance();
     const auto* objects=K::Field::ObjectDirector::Instance();
     director=objects;
@@ -273,9 +283,12 @@ void CourseObjects::Impl::link(){
         std::memcpy(v.resources,set->resources,sizeof v.resources);v.resources[sizeof v.resources-1]=0;
         std::strncpy(v.resource,v.resources,sizeof v.resource-1);
         if(char* semicolon=std::strchr(v.resource,';'))*semicolon=0;
+        if(!coins&&!std::strcmp(v.resource,"coin"))continue;
         v.placement=placementMatrix(*geo);
         if(classifyObject(v,assets,course))visuals.push_back(v);
     }
+    coinVisuals.clear();
+    for(unsigned i=0;i<visuals.size();++i)if(!std::strcmp(visuals[i].resource,"coin"))coinVisuals.push_back(i);
     // Bowser's statue opens its mouth as its fireball launches.
     const K::Field::ObjectBase* fireball=nullptr;
     for(const auto& v:visuals)if(!std::strcmp(v.name,"koopaBall"))fireball=v.object;
@@ -322,7 +335,7 @@ void CourseObjects::Impl::recordObjects(){
     assets.beginFrame();
     ObjectDraw context{view,assets,tick,camera,course,scratch,shadows,objects};
     ObjectDraw waterContext{view,assets,tick,camera,course,scratch,shadows,water};
-    for(auto& v:visuals)if(!skyObject(v))drawObject(waterObject(v)?waterContext:context,v);
+    for(auto& v:visuals)if(!skyObject(v)&&tick>=v.hiddenUntil)drawObject(waterObject(v)?waterContext:context,v);
 }
 void CourseObjects::Impl::replay(Renderer& renderer,const ObjectDrawList& list){
     for(const auto& r:list.records){

@@ -23,7 +23,8 @@ enum class RaceFlowPhase:uint8_t {Racing,Finished,HudExit,UpdateIn,Update,Update
 // advance: A, B or START (Leaderboard handlers); accept: A on the end menu.
 struct RaceFlowInput {bool advance=false,accept=false;};
 // One result row: the racer, its retail character id and VS point totals.
-struct RaceResultEntry {uint8_t racer=0,character=0;bool human=false;uint16_t previous=0,gain=0;};
+// team: battle rows' team (0 red, 1 blue), 0xff outside battle.
+struct RaceResultEntry {uint8_t racer=0,character=0;bool human=false;uint16_t previous=0,gain=0;uint8_t team=0xff;};
 // CtrlRaceResult score state (FillScore 0x807EB0AC, fn_1_2E53E8 0x807EB174,
 // OnUpdate 0x807EB428): ten times the shown score, counting by 2 per frame.
 struct RaceResultCount {
@@ -56,6 +57,9 @@ public:
  uint32_t step(const RaceFlowInput& in);
  // GPVSLeaderboardUpdate::FillRows: rows in finishing order.
  void fill(const RaceResultEntry* byPosition,unsigned count,bool finalRace);
+ // The award ceremony's standings: the totals page at once (rows' previous
+ // are the set totals), held until the caller closes it.
+ void showTotals(const RaceResultEntry* rows,unsigned count);
 
  RaceFlowPhase phase()const{return phase_;}
  bool active()const{return phase_!=RaceFlowPhase::Racing;}

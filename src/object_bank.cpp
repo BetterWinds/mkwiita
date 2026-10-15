@@ -26,6 +26,8 @@ ClipSample sampleClip(unsigned frames,unsigned step,bool loop,float frame){
 namespace {
 uint32_t u32(const uint8_t* p){uint32_t v;std::memcpy(&v,p,4);return v;}
 unsigned samples(unsigned frames,unsigned step){return frames<=1?1:(frames-1+step-1)/step+1;}
+// Clip lengths: Delfino Pier's water scrolls its textures over 24000 frames.
+constexpr unsigned MaxClipFrames=65535;
 }
 void ObjectBank::reset(){
     std::free(data_);data_=nullptr;vertices_=matrices_=shapes_=0;weighted_=false;
@@ -67,7 +69,7 @@ bool ObjectBank::load(const char* path){
     for(unsigned i=0;i<chrCount;++i){
         const uint8_t* p=take(48);if(!p){reset();return false;}
         Chr c{};std::memcpy(c.name,p,32);c.name[31]=0;c.frames=u32(p+32);c.loop=u32(p+36);c.step=u32(p+40);c.animatedCount=u32(p+44);
-        if(!c.frames||c.frames>20000||!c.step||c.step>64||c.animatedCount>matrices_){reset();return false;}
+        if(!c.frames||c.frames>MaxClipFrames||!c.step||c.step>64||c.animatedCount>matrices_){reset();return false;}
         c.animated=reinterpret_cast<const uint32_t*>(take(size_t(c.animatedCount)*4));
         c.base=reinterpret_cast<const float*>(take(size_t(matrices_)*48));
         c.samples=reinterpret_cast<const float*>(take(size_t(samples(c.frames,c.step))*c.animatedCount*48));
@@ -78,14 +80,14 @@ bool ObjectBank::load(const char* path){
     for(unsigned i=0;i<patCount;++i){
         const uint8_t* p=take(40);if(!p){reset();return false;}
         Pat c{};std::memcpy(c.name,p,32);c.name[31]=0;c.frames=u32(p+32);c.loop=u32(p+36);
-        if(!c.frames||c.frames>20000){reset();return false;}
+        if(!c.frames||c.frames>MaxClipFrames){reset();return false;}
         c.data=reinterpret_cast<const int32_t*>(take(size_t(c.frames)*shapes_*8));if(!c.data){reset();return false;}
         pat_.push_back(c);
     }
     for(unsigned i=0;i<srtCount;++i){
         const uint8_t* p=take(48);if(!p){reset();return false;}
         Srt c{};std::memcpy(c.name,p,32);c.name[31]=0;c.frames=u32(p+32);c.loop=u32(p+36);c.step=u32(p+40);c.count=u32(p+44);
-        if(!c.frames||c.frames>20000||!c.step||c.step>64||c.count>shapes_){reset();return false;}
+        if(!c.frames||c.frames>MaxClipFrames||!c.step||c.step>64||c.count>shapes_){reset();return false;}
         c.shapes=reinterpret_cast<const uint32_t*>(take(size_t(c.count)*4));
         c.data=reinterpret_cast<const float*>(take(size_t(samples(c.frames,c.step))*c.count*48));
         if(!c.shapes||!c.data){reset();return false;}
@@ -95,7 +97,7 @@ bool ObjectBank::load(const char* path){
     for(unsigned i=0;i<clrCount;++i){
         const uint8_t* p=take(44);if(!p){reset();return false;}
         Clr c{};std::memcpy(c.name,p,32);c.name[31]=0;c.frames=u32(p+32);c.loop=u32(p+36);c.count=u32(p+40);
-        if(!c.frames||c.frames>20000||c.count>shapes_){reset();return false;}
+        if(!c.frames||c.frames>MaxClipFrames||c.count>shapes_){reset();return false;}
         c.shapes=reinterpret_cast<const uint32_t*>(take(size_t(c.count)*4));
         c.flags=reinterpret_cast<const uint32_t*>(take(size_t(c.count)*4));
         c.data=reinterpret_cast<const uint32_t*>(take(size_t(c.frames)*c.count*12));

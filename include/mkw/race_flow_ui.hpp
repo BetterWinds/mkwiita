@@ -28,6 +28,8 @@ public:
  // PushButton animation groups.
  void step(const RaceResultsFlow& flow);
  void drawResults(Renderer& renderer,const RaceResultsFlow& flow);
+ // The award ceremony's two-column standings instead of the race board.
+ void setAwardLayout(bool award);
 private:
  struct Impl;std::unique_ptr<Impl> impl_;
 };

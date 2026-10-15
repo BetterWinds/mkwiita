@@ -79,6 +79,7 @@ void RaceFlowUi::drawWipe(Renderer& renderer,float progress){
 
 void RaceFlowUi::step(const RaceResultsFlow& flow){impl_->drawer.step(flow);}
 
+void RaceFlowUi::setAwardLayout(bool award){impl_->drawer.award=award;}
 void RaceFlowUi::drawResults(Renderer& renderer,const RaceResultsFlow& flow){
  auto& m=*impl_;
  if(!resultsLoaded())return;

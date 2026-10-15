@@ -22,6 +22,7 @@ struct BottomRacer {
     uint8_t rank=12;          // current position, 1..12
     uint8_t item=20;          // held item icon (ItemKind; 20 none)
     bool local=false;
+    uint8_t team=0xff;        // battle team (0 red, 1 blue): the face's rim colour
     bool hit=false;           // in a damage action (spin, tumble, blast, crush)
 };
 struct BottomItem {
@@ -67,6 +68,8 @@ public:
     bool active() const;
     // Mario Kart 7's touch: the detailed view <-> the whole course.
     void toggleView();
+    // Mirror mode: both maps flip left to right (faces and markers stay readable).
+    void setMirror(bool mirror);
     // Records the frame's bottom screen (after Renderer::beginBottom()).
     void draw(Renderer& renderer,const BottomView& view);
     // The Vita's single screen: the Wii's small course map at the right of the

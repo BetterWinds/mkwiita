@@ -107,6 +107,14 @@ void drawSun(ObjectDraw& d,Visual& v){
     const float scale=length(Vec3{p.r[0].z,p.r[1].z,p.r[2].z});
     d.submit(v.main.model,d.view.cameraFacing(position(p),scale),animAt(v.main,float(d.tick)));
 }
+// Coin Runners coins: the model is centred on its placement, which sits on the
+// floor, so it floats a little above it, turning; its shadow stays below.
+void drawCoin(ObjectDraw& d,Visual& v){
+    C3D_Mtx m=v.placement;m.r[1].w+=95.f;
+    Mtx_RotateY(&m,float(d.tick)*.06f,true);
+    d.submit(v.main.model,m,animAt(v.main,float(d.tick)));
+    if(v.shadow.model)d.shadow(v.shadow.model,v.placement);
+}
 void drawKuribo(ObjectDraw& d,Visual& v){
     const auto& k=*static_cast<const K::Field::ObjectKuribo*>(v.object);
     const C3D_Mtx m=liveMatrix(k);
@@ -672,6 +680,17 @@ void drawItemboxLine(ObjectDraw& d,Visual& v){
         }
     }
 }
+// Toad's Factory falling crates (Kinoko ObjectWoodboxW): the spawner has no
+// model of its own; each of its ObjectWoodboxWSub boxes (the parts before it)
+// is drawn where Kinoko holds it, so the crate and its collision agree.
+void drawWoodboxes(ObjectDraw& d,Visual& v){
+    for(size_t i=0;i+1<v.parts.size();++i){
+        const C3D_Mtx m=liveMatrix(*v.parts[i]);
+        const bool far=v.low.model&&length(position(m)-d.camera)>renderQuality().objectLowDistance;
+        d.submit(far?v.low.model:v.main.model,m,{});
+        if(v.shadow.model)d.shadow(v.shadow.model,m);
+    }
+}
 // Dry Dry Ruins pillars (Kinoko ObjectPillar): the column at its live
 // transform as it topples, over its stationary base.
 void drawPillar(ObjectDraw& d,Visual& v){
@@ -809,6 +828,11 @@ bool classifyObject(Visual& v,const ObjectAssets& assets,int course){
         v.low=v.shadow={};
     }else if(id==ObjectId::Press&&live){
         v.present=drawPress;v.clips[0]=clip(v.main,"Press");
+    }else if(!std::strcmp(v.resource,"coin")){
+        v.present=drawCoin;v.kinetic=false;
+    }else if(id==ObjectId::W_Woodbox&&live){
+        // Retail draws the wooden crate outside Time Trials (getKclName).
+        v.present=drawWoodboxes;v.main=find(assets,"woodbox","woodbox");v.low={};v.shadow={};
     }else if(id==ObjectId::DCPillar&&live){
         v.present=drawPillar;v.extra[0]=find(assets,v.resource,"dc_pillar_base");
     }else if(named(v,"CarB")||named(v,"b_teresa")||named(v,"BGteresaSFC")){

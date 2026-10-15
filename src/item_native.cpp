@@ -275,7 +275,10 @@ void RaceItems::resetFromCourse(unsigned count,uint32_t seed){
     size_t kmpSize=0;const void* kmp=K::System::ResourceManager::Instance()->getFile("course.kmp",&kmpSize,K::System::ArchiveId::Course);
     loadShellRoute(kmp,kmpSize,unsigned(K::System::RaceConfig::Instance()->raceScenario().course));
     size_t oddsSize=0;const auto* odds=K::System::ResourceManager::Instance()->getFile("ItemSlot.bin",&oddsSize,K::System::ArchiveId::Core);
-    loadOdds(odds,oddsSize);
+    // Battle tables (ItemSlot.bin 6/7 Balloon Battle, 8/9 Coin Runners).
+    if(battleOdds_==1)loadOdds(odds,oddsSize,6,7);
+    else if(battleOdds_==2)loadOdds(odds,oddsSize,8,9);
+    else loadOdds(odds,oddsSize);
     for(unsigned i=0;i<count_;++i){K::Item::ItemDirector::Instance()->kartItem(i).clear();(void)K::Item::ItemDirector::Instance()->kartItem(i).takeLossRequests();}
     K::Kart::KartCollide::SetItemCollisionHook(&RaceItems::nativeKartPass,this);
     K::Kart::KartCollide::SetKartBumpHook(&RaceItems::nativeKartBump,this);

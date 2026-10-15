@@ -369,7 +369,12 @@ def main():
             Image.fromarray(array, 'RGBA').save(MK7_SHIPPED / (marker_key(name) + '.png'))
         return
     (a.output / 'textures').mkdir(parents=True, exist_ok=True)
+    # Battle arenas follow the 32 races in the runtime catalog, but have no
+    # lap checkpoints and are not part of the race-map atlas.
     catalog = courses()
+    if len(catalog) < 32:
+        raise SystemExit(f'Expected at least 32 race courses, found {len(catalog)}')
+    catalog = catalog[:32]
     wanted = [int(i) for i in a.courses.split(',')] if a.courses else list(range(len(catalog)))
     manifest_path = a.output / 'race-map.json'
     manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else {'version': 1, 'courses': []}

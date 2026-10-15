@@ -5649,7 +5649,7 @@ index 8cbc005..2eaee9c 100644
      static KPadDirector *s_instance; ///< @addr{0x809BD70C}
  };
 diff --git a/source/game/system/RaceConfig.cc b/source/game/system/RaceConfig.cc
-index b323386..0aded5b 100644
+index b323386..fe96dff 100644
 --- a/source/game/system/RaceConfig.cc
 +++ b/source/game/system/RaceConfig.cc
 @@ -28,16 +28,22 @@ void RaceConfig::initRace() {
@@ -5685,7 +5685,7 @@ index b323386..0aded5b 100644
      }
  }
  
-@@ -86,12 +92,16 @@ RaceConfig::~RaceConfig() {
+@@ -86,12 +92,17 @@ RaceConfig::~RaceConfig() {
  void RaceConfig::Scenario::init() {
      playerCount = 0;
      course = Course::GCN_Mario_Circuit;
@@ -5699,11 +5699,12 @@ index b323386..0aded5b 100644
          player.vehicle = Vehicle::Standard_Kart_M;
          player.type = Player::Type::None;
 +        player.driftIsAuto = false;
++        player.startPosition = 0xff;
      }
  }
  
 diff --git a/source/game/system/RaceConfig.hh b/source/game/system/RaceConfig.hh
-index e9ab671..dbe9d71 100644
+index e9ab671..3246dfe 100644
 --- a/source/game/system/RaceConfig.hh
 +++ b/source/game/system/RaceConfig.hh
 @@ -27,7 +27,8 @@ public:
@@ -5716,7 +5717,15 @@ index e9ab671..dbe9d71 100644
              Ghost = 3, // Inputs managed by ghost
              None = 5,
          };
-@@ -41,7 +42,10 @@ public:
+@@ -36,12 +37,18 @@ public:
+         Vehicle vehicle;
+         Type type;
+         bool driftIsAuto;
++        /// Port: the grid slot (0 = pole), as retail's start positions from
++        /// the previous race; 0xff keeps the player index.
++        u8 startPosition = 0xff;
+     };
+ 
      struct Scenario {
      public:
          enum class GameMode {
@@ -5727,7 +5736,7 @@ index e9ab671..dbe9d71 100644
              Ghost_Race = 5,
          };
  
-@@ -50,6 +54,14 @@ public:
+@@ -50,6 +57,14 @@ public:
          std::array<Player, 12> players;
          u8 playerCount;
          Course course;
@@ -5743,10 +5752,10 @@ index e9ab671..dbe9d71 100644
  
      typedef std::function<void(RaceConfig *, void *)> InitCallback;
 diff --git a/source/game/system/RaceManager.cc b/source/game/system/RaceManager.cc
-index 42decd3..481d776 100644
+index 42decd3..a574c85 100644
 --- a/source/game/system/RaceManager.cc
 +++ b/source/game/system/RaceManager.cc
-@@ -13,14 +13,14 @@ namespace Kinoko::System {
+@@ -13,14 +13,16 @@ namespace Kinoko::System {
  
  /// @addr{0x80532F88}
  void RaceManager::init() {
@@ -5761,12 +5770,14 @@ index 42decd3..481d776 100644
 -    u32 playerCount = 1;
 +void RaceManager::findKartStartPoint(EGG::Vector3f &pos, EGG::Vector3f &angles, size_t index) {
 +    ASSERT(index < m_playerCount);
-+    u32 placement = index + 1;
++    // Port: a set grid slot (the previous race's finishing order) if any.
++    const u8 slot = RaceConfig::Instance()->raceScenario().players[index].startPosition;
++    u32 placement = slot < m_playerCount ? slot + 1u : index + 1;
 +    u32 playerCount = m_playerCount;
      u32 startPointIdx = 0;
  
      MapdataStartPoint *kartpoint = CourseMap::Instance()->getStartPoint(startPointIdx);
-@@ -34,9 +34,12 @@ void RaceManager::findKartStartPoint(EGG::Vector3f &pos, EGG::Vector3f &angles)
+@@ -34,9 +36,12 @@ void RaceManager::findKartStartPoint(EGG::Vector3f &pos, EGG::Vector3f &angles)
  }
  
  /// @addr{0x80533C6C}
@@ -5782,7 +5793,7 @@ index 42decd3..481d776 100644
  }
  
  /// @addr{0x805331B4}
-@@ -44,11 +47,11 @@ void RaceManager::calc() {
+@@ -44,11 +49,11 @@ void RaceManager::calc() {
      constexpr u16 STAGE_INTRO_DURATION = 172;
  
      m_timerManager.calc();
@@ -5796,7 +5807,7 @@ index 42decd3..481d776 100644
              m_stage = Stage::Countdown;
              KPadDirector::Instance()->startGhostProxies();
          }
-@@ -60,6 +63,7 @@ void RaceManager::calc() {
+@@ -60,6 +65,7 @@ void RaceManager::calc() {
          }
          break;
      case Stage::Race:
@@ -5804,7 +5815,7 @@ index 42decd3..481d776 100644
          ++m_timer;
          break;
      default:
-@@ -68,8 +72,8 @@ void RaceManager::calc() {
+@@ -68,8 +74,8 @@ void RaceManager::calc() {
  }
  
  /// @addr{0x8053621C}
@@ -5815,7 +5826,7 @@ index 42decd3..481d776 100644
      return System::CourseMap::Instance()->getJugemPoint(static_cast<u16>(jugemId));
  }
  
-@@ -90,7 +94,10 @@ void RaceManager::DestroyInstance() {
+@@ -90,7 +96,10 @@ void RaceManager::DestroyInstance() {
  
  /// @addr{0x805327A0}
  RaceManager::RaceManager()
@@ -5827,7 +5838,7 @@ index 42decd3..481d776 100644
  
  /// @addr{0x80532E3C}
  RaceManager::~RaceManager() {
-@@ -123,11 +130,17 @@ RaceManager::Player::Player() {
+@@ -123,11 +132,17 @@ RaceManager::Player::Player() {
  }
  
  /// @addr{0x80534194}
@@ -5847,7 +5858,7 @@ index 42decd3..481d776 100644
          f32 distanceRatio;
          s16 checkpointId = courseMap->findSector(pos, 0, distanceRatio);
  
-@@ -140,8 +153,9 @@ void RaceManager::Player::init() {
+@@ -140,8 +155,9 @@ void RaceManager::Player::init() {
  
  /// @addr{0x80535304}
  void RaceManager::Player::calc() {
@@ -5858,7 +5869,7 @@ index 42decd3..481d776 100644
  
      if (courseMap->getCheckPointCount() == 0 || courseMap->getCheckPathCount() == 0 ||
              kart->status().onBit(Kart::eStatus::BeforeRespawn)) {
-@@ -275,7 +289,7 @@ void RaceManager::Player::incrementLap() {
+@@ -275,7 +291,7 @@ void RaceManager::Player::incrementLap() {
          return;
      }
  
@@ -5867,7 +5878,7 @@ index 42decd3..481d776 100644
      u16 addMs = CourseMap::Instance()->getCheckPointEntryOffsetMs(m_checkpointId, kart->pos(),
              kart->prevPos());
  
-@@ -295,8 +309,9 @@ void RaceManager::Player::incrementLap() {
+@@ -295,8 +311,9 @@ void RaceManager::Player::incrementLap() {
  
  /// @addr{0x805347F4}
  void RaceManager::Player::endRace(const Timer &finishTime) {

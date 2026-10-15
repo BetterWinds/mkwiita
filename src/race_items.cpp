@@ -72,7 +72,7 @@ bool RaceItems::startRoulette(unsigned player){
         const auto use=ItemObjects[unsigned(choice)];
         if(itemObjectCapacity(use.type)<objectCount(use.type)+use.count)choice=ItemKind::Mushroom;
     }
-    rouletteChoice_[player]=choice;rouletteRank_[player]=uint8_t(rank(player));
+    rouletteChoice_[player]=choice;rouletteRank_[player]=uint8_t(oddsRank(player));
     roulettes_[player]={};h.roulette=1;h.rouletteIcon=nextRouletteIcon(player,ItemKind::None);return true;
 }
 unsigned RaceItems::objectCount(unsigned type) const{
@@ -94,7 +94,7 @@ ItemKind RaceItems::choose(unsigned player){
     // Original offline VS tables, with separate human and CPU distributions
     // (RMCU ItemSlotData_decideItem 0x807ac9cc).
     if(!odds_.ready())return ItemKind::None;
-    auto weights=odds_.weights(player!=0,rank(player));
+    auto weights=odds_.weights(player!=0,oddsRank(player));
     // Spawn timers (Lightning, Blue, Blooper, POW).
     constexpr ItemKind delayed[]={ItemKind::Lightning,ItemKind::BlueShell,ItemKind::Blooper,ItemKind::Pow};
     for(unsigned i=0;i<4;++i)if(itemSpawnTimers_[i])weights[unsigned(delayed[i])]=0;
@@ -166,7 +166,7 @@ bool RaceItems::strike(unsigned player,int action,unsigned owner,Vec3 direction,
         action==KartAction::Launch||action==KartAction::LaunchSpin?ItemEffect::Launch:
         action==KartAction::StarHit||action==KartAction::Knockback||action==KartAction::BulletHit?ItemEffect::Knockback:
         action==KartAction::MegaCrush?ItemEffect::Crush:action==KartAction::Pow?ItemEffect::Pow:ItemEffect::Spin;
-    events_.push_back({effect,uint8_t(player),0,direction,int8_t(action)});
+    events_.push_back({effect,uint8_t(player),0,direction,int8_t(action),1.f,uint8_t(owner<MaxRacers?owner:0xff)});
     return true;
 }
 bool RaceItems::shrink(unsigned player,uint16_t frames,bool spinShrink,bool cloud){

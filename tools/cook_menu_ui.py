@@ -464,7 +464,7 @@ def main():
  # Whole labels keep glyph spacing from the original BRFNT CWDH tables.
  roster=json.loads((OUT/'models/roster.json').read_text());garage=json.loads((OUT/'models/garage.json').read_text())
  courses=json.loads((OUT/'models/course-catalog.json').read_text())['courses']
- course_names=re.findall(r'\{"([^"]+)"', (ROOT/'include/mkw/course_catalog.hpp').read_text())
+ course_names=re.findall(r'\{"([^"]+)"', (ROOT/'include/mkw/course_catalog.hpp').read_text())[:32]
  labels=['Single Player','Multiplayer','Nintendo WFC','Main Menu','Grand Prix','Time Trials','VS','Battle','Not available','Character','Character Select','Vehicle','Machine Select','Drift','Drift Type','Automatic','Manual','Cup','Select Cup','Course','Start Race','Pause','Continue','Restart','Quit','Quit this race?','Yes','No','Results','Race Again','Change Course','Change Character','Main Menu','Press A','A: Select    B: Back','A: Select    B: Cancel','A: Start    B: Back','START: Pause','A: Next    B: Back','Loading...','Race unavailable','Choose another course','Finish','Racing','12 racers','No teams','150cc','A: Accelerate   B: Brake','R: Drift   L: Item','Circle Pad: Steer','D-pad: Trick / Wheelie','Hold down + L: Throw back','A: Confirm    B: Cancel','Manual drift','Automatic drift','VS Race','Course Select','Single race','Mushroom Cup','Flower Cup','Star Cup','Special Cup','Shell Cup','Banana Cup','Leaf Cup','Lightning Cup']
  labels+=['Mario','Luigi','Peach','Yoshi','Baby Mario','Baby Peach','Toad','Koopa Troopa','Wario','Waluigi','Donkey Kong','Bowser']
  labels+=course_names+[c['name'] for c in garage['choices']]+list('0123456789:.-/')
@@ -578,7 +578,7 @@ def main():
    save('button_switch'+suffix+'_'+str(i),combined,extension)
  maps=[]
  # Catalog order differs from cup order. Resolve via the runtime archive names.
- archives=re.findall(r'"Race/Course/([^"]+)\.szs"',(ROOT/'include/mkw/course_catalog.hpp').read_text())
+ archives=re.findall(r'"Race/Course/([^"]+)\.szs"',(ROOT/'include/mkw/course_catalog.hpp').read_text())[:32]
  for i,archive in enumerate(archives):
   path=ROOT/'assets/courses'/archive/'map_model.brres';source(path)
   temp=ROOT/'build/menu-maps'/archive;temp.mkdir(parents=True,exist_ok=True)

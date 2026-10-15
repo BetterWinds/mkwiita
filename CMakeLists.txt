@@ -80,7 +80,11 @@ target_compile_options(mkw PRIVATE ${MKW_CODEGEN} -Wall -Wno-psabi
   $<$<COMPILE_LANGUAGE:CXX>:-std=gnu++23 -fno-exceptions -fno-rtti -fcheck-new>)
 target_compile_definitions(mkw PRIVATE ${MKW_DEFINES})
 target_include_directories(mkw PRIVATE ${MKW_INCLUDES})
-target_link_options(mkw PRIVATE -Wl,--gc-sections -Wl,-q -Wl,--wrap=fopen)
+# __sce_headroom (VitaSDK's armelf.x): at least 64 KiB between the code and data
+# segments. DATA_SEGMENT_ALIGN otherwise starts .data on the 64 KiB boundary
+# right after the code whenever the code size lands just so, and vita-elf-create
+# then crashes (heap corruption, 0xc0000374) while converting to mkw.velf.
+target_link_options(mkw PRIVATE -Wl,--gc-sections -Wl,-q -Wl,--wrap=fopen -Wl,--defsym=__sce_headroom=0x10000)
 target_link_libraries(mkw PRIVATE
   kinoko ctrport
   vitaGL vitashark SceShaccCgExt mathneon taihen_stub SceShaccCg_stub
