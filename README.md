@@ -13,25 +13,28 @@ It isn't an emulator. The game runs natively on the Vita:
 This repository contains **no Nintendo files**. You build the game files
 yourself, on your own computer, from your own Mario Kart Wii disc.
 
-> **Status: playable, work in progress.** Menus, Grand Prix, VS and Time
-> Trials run on real hardware, with sound, in 16:9. Races run at 45-60 FPS
-> (or a locked 30, see [Settings](#settings)). The first time a new material
-> appears the game pauses to compile its shader; those are cached, so later
-> launches are smooth.
+> **Status: playable, work in progress.** Menus, Grand Prix (including
+> Mirror and the award ceremony), VS and Time Trials run on real hardware,
+> with sound, in 16:9. Battle is playable and still being worked on. Races run
+> at 45-60 FPS (or a locked 30, see [Settings](#settings)). The first time a
+> new material appears the game pauses to compile its shader; those are
+> cached, so later launches are smooth.
 
 ## What works
 
 | | |
 |---|---|
-| Menus, Grand Prix (50/100/150cc), VS, Time Trials | ✅ |
+| Menus, Grand Prix (50/100/150cc and Mirror), VS, Time Trials | ✅ |
+| Grand Prix award ceremony and final standings | ✅ |
 | All 24 drivers and 36 vehicles | ✅ |
 | Items, CPU racers, results and standings | ✅ |
 | Music and sound effects | ✅ |
 | Wii-style course map, race timer and incoming-item warning | ✅ |
 | Best times saved | ✅ |
 | Widescreen (16:9) | ✅ |
+| Battle: team Balloon Battle and Coin Runners on all ten arenas | ⏳ Playable, in progress |
 | Steady 60 FPS | ⏳ 45-60 FPS in races; performance work ongoing |
-| Battle, Team VS, award ceremony, Mirror, online | ❌ Not yet (as in MKW-3DS) |
+| Team VS, online | ❌ Not yet |
 
 ## What you need
 
@@ -117,7 +120,7 @@ Details: [docs/VITA_PORT.md](docs/VITA_PORT.md).
 ## Credits
 
 - **dudewhat:** the original Mario Kart Wii recreation for the 3DS
-- **MiniBandit:** [MKW-3DS](https://github.com/MiniBandit/MKW-3DS), the continuation this port is built on
+- **MiniBandit:** [MKW-3DS](https://github.com/MiniBandit/MKW-3DS), the continuation this port is built on (including its Balloon Battle groundwork)
 - [Kinoko](https://github.com/vabold/Kinoko) by vabold (MIT): Mario Kart Wii physics
 - [vitaGL](https://github.com/Rinnegatamante/vitaGL) and [vitaShaRK](https://github.com/Rinnegatamante/vitaShaRK) by Rinnegatamante: OpenGL and runtime shaders on the Vita
 - [VitaSDK](https://vitasdk.org): the Vita toolchain
