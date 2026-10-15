@@ -114,8 +114,17 @@ void RaceGrid::configure(Kinoko::System::RaceConfig& config,unsigned localChoice
         if(i>=count_){p.type=Kinoko::System::RaceConfig::Player::Type::None;continue;}
         // CPUs take each driver's standard kart, or standard bike (garage slot 3)
         // in the bikes-only 100cc Grand Prix.
-        const unsigned cpuVehicle=config.raceScenario().engineClass==1?3:0;
+        unsigned cpuVehicle=config.raceScenario().engineClass==1?3:0;
+        if(cpuVehicles_>=0){
+            // VS/Battle rules: a machine of the allowed kind for each CPU
+            // (garage slot order: karts 0,1,2,6,7,8; bikes 3,4,5,9,10,11).
+            constexpr unsigned Karts[6]={0,1,2,6,7,8},Bikes[6]={3,4,5,9,10,11};
+            uint32_t x=cpuSeed_^(i*2654435761u);x^=x>>16;x*=2246822519u;x^=x>>13;
+            const unsigned pick=x%12;
+            cpuVehicle=cpuVehicles_==1?Karts[pick%6]:cpuVehicles_==2?Bikes[pick%6]:pick;
+        }
         choices_[i]=i?((localDriver+i)%driverCount)*VehiclesPerDriver+cpuVehicle:localChoice;
+        if(i==1&&ghostChoice_>=0)choices_[i]=unsigned(ghostChoice_)%GarageChoices.size();
         const auto& choice=GarageChoices[choices_[i]];
         p.character=static_cast<Kinoko::Character>(choice.character);p.vehicle=static_cast<Kinoko::Vehicle>(choice.vehicle);
         p.type=i?Kinoko::System::RaceConfig::Player::Type::CPU:Kinoko::System::RaceConfig::Player::Type::Local;
@@ -150,9 +159,9 @@ bool RaceGrid::reset(){
         return true;
     }
     size_t paramSize=0;const void* params=System::ResourceManager::Instance()->getFile("kartAISpdParam.bin",&paramSize,System::ArchiveId::Core);
-    // The chosen engine class, Normal CPUs. Difficulty selection is not exposed yet.
+    // The chosen engine class and CPU level (VS rules; Normal otherwise).
     const unsigned engineClass=std::min<unsigned>(config->raceScenario().engineClass,2);
-    speedParamReady_=readCpuSpeedParam(params,paramSize,unsigned(config->raceScenario().course),engineClass,1,speedParam_);
+    speedParamReady_=readCpuSpeedParam(params,paramSize,unsigned(config->raceScenario().course),engineClass,cpuLevel_,speedParam_);
     // Distance adapter: a permitted native ENPT circuit scales checkpoint lap
     // completion. Retail uses mean CKPT circuit length; branched-path parity remains pending.
     lapDistance_=0;std::vector<bool> visited(route_.size(),false);unsigned point=0;
@@ -163,13 +172,13 @@ bool RaceGrid::reset(){
     const float routeLength=lapDistance_;
     lapDistance_=std::clamp(lapDistance_,4500.f,9000.f);
     afterStep();
-    // Retail Enemy::AI (cpu_ai.cpp): the chosen engine class, Normal CPUs (cpuMode 1).
-    CpuAi::Setup setup;setup.route=&route_;setup.count=count_;setup.engineClass=engineClass;setup.cpuMode=1;
+    // Retail Enemy::AI (cpu_ai.cpp): the chosen engine class and CPU level (cpuMode).
+    CpuAi::Setup setup;setup.route=&route_;setup.count=count_;setup.engineClass=engineClass;setup.cpuMode=cpuLevel_;
     setup.speed=speedParam_;setup.speedReady=speedParamReady_;
     size_t actionSize=0;const void* actions=System::ResourceManager::Instance()->getFile("kartAIActionParam.bin",&actionSize,System::ArchiveId::Core);
     setup.actionsReady=readCpuActionParam(actions,actionSize,setup.cpuMode,setup.actions);
     if(!setup.actionsReady)for(auto& a:setup.actions)a={50,10,70,70,80,50,0,0};
-    setup.courseLength=std::max(routeLength,1000.f);setup.humanMask=1;
+    setup.courseLength=std::max(routeLength,1000.f);setup.humanMask=ghostChoice_>=0&&count_>1?3:1;
     setup.seed=0x9e3779b9u^(unsigned(config->raceScenario().course)*2654435761u);
     ai_.reset(setup);
     return ok;
@@ -188,7 +197,8 @@ void RaceGrid::beforeStep(uint16_t bulletPlayers){
     for(unsigned j=1;j<count_;++j)leaderCompletion=std::max(leaderCompletion,manager->player(j).raceCompletion());
     // Retail Enemy::AI drives every CPU outside a Bullet (and player zero for QA).
     uint32_t aiMask=0;
-    for(unsigned i=0;i<count_;++i)if(!(bulletPlayers&(1u<<i))&&(i||driveLocal))aiMask|=1u<<i;
+    // A Time Trial ghost replays its recorded inputs (main.cpp): no AI at all.
+    for(unsigned i=0;i<count_;++i)if(!(bulletPlayers&(1u<<i))&&(i||driveLocal)&&!ghost(i))aiMask|=1u<<i;
     if(ai_.ready()){
         // CPUs run the retail stuck handler inside CpuAi; the QA autopilot keeps
         // the adapted recovery below.
@@ -199,6 +209,7 @@ void RaceGrid::beforeStep(uint16_t bulletPlayers){
         const bool bullet=(bulletPlayers&(1u<<i))!=0;
         auto& d=drivers_[i];
         if(i==0&&!bullet&&!driveLocal){if(d.bullet)objects->object(i)->move()->setKartSpeedLimit();d.bullet=false;continue;}
+        if(ghost(i))continue;
         auto* pad=System::KPadDirector::Instance()->hostController(i);
         if(battleArena_&&!bullet){battleDrive(i,racing);continue;}
         const auto& route=bullet?bulletRoute_:route_;

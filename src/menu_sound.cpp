@@ -24,6 +24,7 @@ int retailPage(UiPage page) {
  case UiPage::Ghost: return 0x71;
  case UiPage::VSMode: return 0x72;
  case UiPage::BattleMode: return 0x75;
+ case UiPage::Rules: return 0x73; // VSSettings (BattleSettings 0x76 shares its sounds)
  case UiPage::BattleCup: return 0x78;
  case UiPage::BattleStage: return 0x79;
  default: return -1;

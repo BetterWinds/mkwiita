@@ -408,6 +408,56 @@ static void composeMenuImpl(const MenuState& s,const UiRaceView& race,std::vecto
   for(unsigned i=0;i<2;++i){Pose p=control(battle?"BattleSelect":"VSSelect",battle?(i?"ButtonCoin":"ButtonBalloon"):(i?"ButtonTeam":"ButtonIndividual"),i);auto base=c.buttonState(battle?"battle":"vs",i);c.movieButton(base.c_str(),p);c.movie(battle?"battle_mode_movie_":"vs_movie_",i,base.c_str(),"black_base",p);c.movieOverlay(base.c_str(),p);c.text(names[i],base.c_str(),p);if(s.cursor==i)c.glow(battle?"battle":"vs",p,names[i]);}
   c.chrome(battle?"Battle":"VS");break;
  }
+ case UiPage::Rules:{
+  // Pages::VSSettings / BattleSettings: RadioBase rows with their RadioOption
+  // buttons (the chosen one in its Choice-on state), the UpDown race or win
+  // count, and OK. Battle shares the layouts under its own control names.
+  const bool battle=s.selection.mode==UiMode::Battle;
+  const char* base=battle?"BattleSettingRadioBase":"VSSettingRadioBase";
+  const char* option=battle?"BattleSettingRadioOption":"VSSettingRadioOption";
+  unsigned focusRow,focusOption;s.ruleCursor(focusRow,focusOption);
+  static const char* rowVariants[]={"RadioClass","RadioLevel","RadioMachine","RadioCourse","RadioItem"};
+  static const char* optionVariants[]={"OptionClass","OptionLevel","OptionMachine","OptionCourse","OptionItem"};
+  static const char* rowLabels[]={"Class","CPU","CPU Vehicles","Courses","Items"};
+  static const char* options[5][4]={{"50cc","100cc","150cc","Mirror"},{"Easy","Normal","Hard",""},{"All","Karts","Bikes",""},{"Choose","Random","In Order",""},{"Balanced","Aggressive","Strategic","None"}};
+  for(unsigned row=0;row<s.ruleRows();++row){
+   const auto info=s.ruleRow(row);const bool focused=row==focusRow;
+   if(info.row==UiRuleRow::Ok){
+    Pose ok=control(battle?"BattleSetting":"VSSetting","ButtonOK",s.ruleSlot(row,0));
+    c.button("button",s.ruleSlot(row,0),ok,"OK");continue;
+   }
+   if(info.row==UiRuleRow::Count){
+    const Pose updown=control(battle?"BattleSettingUpDownBase":"VSSettingUpDownBase","UpDownRaceNum");
+    const char* rowBase=focused?"rule_row_select":"rule_row_free";
+    c.panel(rowBase,updown);c.text(battle?"Win Count":"Race Count",rowBase,updown);
+    const Pose value=child(updown,control(battle?"BattleSettingUpDownValue":"VSSettingUpDownValue","Value"));
+    c.panel(focused?"rule_value_select":"rule_value_free",value);
+    const Pose left=child(updown,control(battle?"BattleSettingUpDownButtonL":"VSSettingUpDownButtonL","LeftButton"));
+    const Pose right=child(updown,control(battle?"BattleSettingUpDownButtonR":"VSSettingUpDownButtonR","RightButton"));
+    c.panel(focused?"rule_left_select":"rule_left_free",left);c.panel(focused?"rule_right_select":"rule_right_free",right);
+    char label[24];std::snprintf(label,sizeof label,battle?"Wins: %u":"Races: %u",battle?s.selection.battleWins:s.selection.raceCount);
+    c.text(label,"rule_value_text",child(value,control(battle?"BattleSettingUpDownText":"VSSettingUpDownText","Text")));
+    continue;
+   }
+   const unsigned kind=unsigned(info.row);
+   const Pose rowPose=control(base,rowVariants[kind]);
+   const char* rowBase=focused?"rule_row_select":"rule_row_free";
+   c.panel(rowBase,rowPose);c.text(battle&&info.row==UiRuleRow::Courses?"Stages":rowLabels[kind],rowBase,rowPose);
+   const unsigned chosen=s.ruleChoice(info.row);
+   for(unsigned i=0;i<info.options;++i){
+    char variant[24];std::snprintf(variant,sizeof variant,"%s%u",optionVariants[kind],i);
+    const Pose p=child(rowPose,control(option,variant));
+    const bool on=i==chosen,select=focused&&i==focusOption;
+    char panel[32];std::snprintf(panel,sizeof panel,"%s%s",on?"rule_option_on":"rule_option",select?"_select":"_free");
+    c.panel(panel,p);c.text(options[kind][i],panel,p,0xffffffff,on?"active_text":"text");
+   }
+  }
+  const auto row=s.ruleRow(focusRow).row;
+  const char* help=row==UiRuleRow::Class?UiHelpRulesClass[std::min(focusOption,3u)]:row==UiRuleRow::Cpu?UiHelpRulesCpu[std::min(focusOption,2u)]
+   :row==UiRuleRow::Vehicles?UiHelpRulesVehicles[std::min(focusOption,2u)]:row==UiRuleRow::Courses?(battle?UiHelpRulesStages:UiHelpRulesCourses)[std::min(focusOption,2u)]
+   :row==UiRuleRow::Items?UiHelpRulesItems[std::min(focusOption,3u)]:row==UiRuleRow::Count?UiHelpRulesCount[battle]:UiHelpRulesOk[battle];
+  c.chrome("Rules",help);break;
+ }
  case UiPage::Cup:case UiPage::Course:{
   bool pickCup=s.page==UiPage::Cup;unsigned selectedCup=pickCup?std::min(s.cursor,7u):course/4;
   Pose cups=control("CupSelectNULL","CupSelectCupNULL"),courses=control("CupSelectNULL","CupSelectCourseNULL");
@@ -478,7 +528,7 @@ static void composeMenuImpl(const MenuState& s,const UiRaceView& race,std::vecto
  }
  case UiPage::Ghost:{
   c.panel("ghost_info",control("GhostInfo","TimeAttackGhostList"));
-  c.text("There are no ghosts for this course.","ghost_info",control("GhostInfo","TimeAttackGhostList"),0xffffffff,"none_text");
+  if(!s.ghostAvailable)c.text("There are no ghosts for this course.","ghost_info",control("GhostInfo","TimeAttackGhostList"),0xffffffff,"none_text");
   const char* names[]={"Race This Ghost","Watch the Replay","Solo Time Trials"};
   const char* variants[]={"Run","Watch","Alone"};
   for(unsigned i=0;i<3;++i)c.button("ghost",i,control("TimeAttackGhostList",variants[i]),names[i]);

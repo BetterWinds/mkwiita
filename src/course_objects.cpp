@@ -231,6 +231,13 @@ Vec3 CourseObjects::coinPosition(unsigned coin) const{
 }
 bool CourseObjects::coinAvailable(unsigned coin,unsigned tick) const{return tick>=impl_->visuals[impl_->coinVisuals[coin]].hiddenUntil;}
 void CourseObjects::collectCoin(unsigned coin,unsigned tick){impl_->visuals[impl_->coinVisuals[coin]].hiddenUntil=tick+CoinRespawnTicks;}
+const Model* CourseObjects::coinModel(Bounds* bounds) const{
+    if(!impl_->linked||impl_->coinVisuals.empty())return nullptr;
+    const ObjModel* m=impl_->visuals[impl_->coinVisuals[0]].main.model;
+    if(!m||!m->model)return nullptr;
+    if(bounds)*bounds=m->bounds;
+    return m->model.get();
+}
 bool CourseObjects::loadCoconut(){
     auto& d=*impl_;
     d.palm=std::make_unique<Model>();

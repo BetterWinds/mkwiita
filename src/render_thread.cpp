@@ -539,6 +539,25 @@ void Renderer::drawCameraFacing(const Model& model,Vec3 anchor,float upOffset,fl
     transform.r[0].w=position.x;transform.r[1].w=position.y;transform.r[2].w=position.z;
     draw(model,transform);
 }
+void Renderer::drawCameraSpace(const Model& model,const C3D_Mtx& cameraSpace){
+    // World = view rotation transposed * camera space + the eye.
+    const Vec3 eye=cameraPosition();
+    const float c[3][4]={{cameraSpace.r[0].x,cameraSpace.r[0].y,cameraSpace.r[0].z,cameraSpace.r[0].w},
+                         {cameraSpace.r[1].x,cameraSpace.r[1].y,cameraSpace.r[1].z,cameraSpace.r[1].w},
+                         {cameraSpace.r[2].x,cameraSpace.r[2].y,cameraSpace.r[2].z,cameraSpace.r[2].w}};
+    const float v[3][3]={{mainView_.r[0].x,mainView_.r[0].y,mainView_.r[0].z},
+                         {mainView_.r[1].x,mainView_.r[1].y,mainView_.r[1].z},
+                         {mainView_.r[2].x,mainView_.r[2].y,mainView_.r[2].z}};
+    float w[3][4];
+    for(unsigned row=0;row<3;++row)for(unsigned col=0;col<4;++col){
+        float sum=0;for(unsigned k=0;k<3;++k)sum+=v[k][row]*c[k][col];
+        w[row][col]=sum;
+    }
+    w[0][3]+=eye.x;w[1][3]+=eye.y;w[2][3]+=eye.z;
+    C3D_Mtx transform;Mtx_Identity(&transform);
+    for(unsigned row=0;row<3;++row){transform.r[row].x=w[row][0];transform.r[row].y=w[row][1];transform.r[row].z=w[row][2];transform.r[row].w=w[row][3];}
+    draw(model,transform);
+}
 void Renderer::setRigidPose(const RigidPose* pose){
     if(!recording()){rigid_=pose;return;}
     RigidPose* copied=nullptr;

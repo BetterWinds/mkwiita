@@ -201,7 +201,7 @@ void RacerVisuals::draw(Renderer& renderer,const RaceItems& items,Vec3 viewer,un
     for(unsigned i=0;i<11;++i)if(auto* r=d.racers[i].get()){
         const auto& out=d.prepared[i];
         if(!out.draw)continue;
-        renderer.additiveColor=out.additive;
+        renderer.additiveColor=(ghostMask>>(i+1))&1u?GhostColor:out.additive;
         if(out.bodyVisible)drawSkinned(r->bodyAnimation.get(),*r->body,out.body);
         if(out.driverVisible)drawSkinned(r->animation.get(),*r->driver,out.seated);
         for(unsigned w=0;w<out.wheels;++w)if(out.wheelVisible[w])renderer.draw(*r->wheels[r->vehicle.modelIndex(w)],out.wheel[w]);

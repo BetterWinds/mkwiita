@@ -162,6 +162,9 @@ public:
     /// rolls use ItemSlot.bin's battle tables (6/7, 8/9), whose three columns are the
     /// racer's team winning, tied or losing (setOddsColumn, 1..3, each step).
     void setBattle(unsigned mode){battleOdds_=mode;}
+    /// VS/Battle item rules (before resetFromCourse): 0 Balanced, 1 Aggressive,
+    /// 2 Strategic reshape the odds (ItemOdds::applyMode); 3 None hides every box.
+    void setItemMode(unsigned mode){itemMode_=mode;}
     void setOddsColumn(unsigned player,unsigned column){if(player<MaxRacers)oddsColumn_[player]=uint8_t(column);}
     bool oddsReady()const{return odds_.ready();}
     bool loadShellRoute(const void* bytes,size_t size,unsigned course=0xffff){shellCourse_=course;return shellRoute_.load(bytes,size);}
@@ -208,7 +211,7 @@ public:
     void cloudBump(unsigned attacker,unsigned victim,const ItemRacer& target);
     static bool segmentHits(Vec3 from,Vec3 to,Vec3 center,float radius);
 private:
-    unsigned battleOdds_=0;std::array<uint8_t,MaxRacers> oddsColumn_{};
+    unsigned battleOdds_=0,itemMode_=0;std::array<uint8_t,MaxRacers> oddsColumn_{};
     ItemOdds odds_;
     ShellRoute shellRoute_;
     unsigned shellCourse_=0xffff;

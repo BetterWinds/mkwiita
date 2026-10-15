@@ -173,6 +173,8 @@ void RaceItems::stepMovers(){
         auto& box=boxes_[m.box];box.active=true;box.respawn=0;box.appearance=ItemBoxAppearanceFrames+1;
         line.next=uint16_t((line.next+1)%line.movers.size());
     }
+    // Items: None ("No items appear."): no box ever shows, on rails or not.
+    if(itemMode_==3)for(auto& box:boxes_){box.active=false;box.respawn=0;}
     for(auto& m:movers_){
         auto& box=boxes_[m.box];auto& r=*m.rail;
         switch(m.kind){
@@ -279,6 +281,8 @@ void RaceItems::resetFromCourse(unsigned count,uint32_t seed){
     if(battleOdds_==1)loadOdds(odds,oddsSize,6,7);
     else if(battleOdds_==2)loadOdds(odds,oddsSize,8,9);
     else loadOdds(odds,oddsSize);
+    odds_.applyMode(itemMode_);
+    if(itemMode_==3)for(auto& box:boxes_){box.active=false;box.respawn=0;}
     for(unsigned i=0;i<count_;++i){K::Item::ItemDirector::Instance()->kartItem(i).clear();(void)K::Item::ItemDirector::Instance()->kartItem(i).takeLossRequests();}
     K::Kart::KartCollide::SetItemCollisionHook(&RaceItems::nativeKartPass,this);
     K::Kart::KartCollide::SetKartBumpHook(&RaceItems::nativeKartBump,this);

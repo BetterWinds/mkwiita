@@ -41,6 +41,11 @@ const char* uiSelectedMenuControl(const MenuState& state,bool back){
  case UiPage::EngineClass:return "ClassSelect2";
  case UiPage::VSMode:return "VSSelect";
  case UiPage::BattleMode:return "BattleSelect";
+ case UiPage::Rules:{
+  unsigned row,option;state.ruleCursor(row,option);const bool battle=state.selection.mode==UiMode::Battle;
+  if(state.ruleRow(row).row==UiRuleRow::Ok)return battle?"BattleSetting":"VSSetting";
+  return battle?"BattleSettingRadioOption":"VSSettingRadioOption";
+ }
  case UiPage::Character:{
   static const char* controls[]={"CharacterSelect4_0","CharacterSelect4_1","CharacterSelect4_2","CharacterSelect4_3"};
   return controls[std::min(state.cursor/8,3u)];
@@ -68,6 +73,11 @@ float uiMenuMaxDelay(const MenuState& state){
  case UiPage::EngineClass:return maximum("ClassSelect2");
  case UiPage::VSMode:return maximum("VSSelect");
  case UiPage::BattleMode:return maximum("BattleSelect");
+ case UiPage::Rules:{
+  const bool battle=state.selection.mode==UiMode::Battle;
+  return std::max({maximum(battle?"BattleSettingRadioBase":"VSSettingRadioBase"),maximum(battle?"BattleSettingRadioOption":"VSSettingRadioOption"),
+                   maximum(battle?"BattleSettingUpDownBase":"VSSettingUpDownBase"),maximum(battle?"BattleSetting":"VSSetting")});
+ }
  case UiPage::Character:return delay("CharacterSelect4_3","Button1");
  case UiPage::Vehicle:return std::max(maximum("MachineSelectNULL6"),maximum("MachineAbility"));
  case UiPage::Drift:return delay("PadEasy","ButtonNormal");

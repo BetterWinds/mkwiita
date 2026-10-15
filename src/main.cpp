@@ -22,6 +22,7 @@
 #include <mkw/kart_smoke_effects.hpp>
 #include <mkw/race_results.hpp>
 #include <mkw/trick_presentation.hpp>
+#include <mkw/time_trial_ghost.hpp>
 #include <mkw/race_items.hpp>
 #include <mkw/star_power.hpp>
 #include <mkw/job_worker.hpp>
@@ -146,12 +147,20 @@ static bool fullRace=false,automaticDrift=false;
 // Battle on the ten arenas (RaceCourseCount..): three-minute team matches,
 // Balloon Battle or Coin Runners (include/mkw/balloon_battle.hpp).
 static bool battleMode=false,coinRunnersMode=false;
+// Team VS (VS > Team Race): two teams as in battle (racer i on team i % 2);
+// each team's points are the sum of its members'.
+static bool teamVs=false;
 static unsigned battleTicks=0;
 static std::array<bool,12> battleFalling{};
 static mkw::BalloonBattle balloonBattle;
-// A battle set: BattleRounds battles, each racer's points carried over.
-struct BattleSet {unsigned battle=0;std::array<uint16_t,12> points{};bool next=false;};
-static constexpr unsigned BattleRounds=2;
+// A battle set: battles until a team has won battleWinsTarget of them (the
+// rules' "Wins"), each racer's points carried over.
+struct BattleSet {unsigned battle=0;std::array<uint16_t,12> points{};std::array<unsigned,2> wins{};bool next=false;};
+static unsigned battleWinsTarget=2;
+// VS/Battle rules (the menu's Rules page): races in a VS set, CPU level,
+// CPU vehicles (-1 the Grand Prix's standard karts) and the item setting.
+static unsigned vsRaceCount=4,cpuLevelChoice=1,itemModeChoice=0;
+static int cpuVehicleChoice=-1;
 // Each racer's finishing position (0-based) in the last race: the next race's grid.
 static std::array<uint8_t,12> lastFinish{};
 static BattleSet battleSet;
@@ -162,6 +171,12 @@ static unsigned engineClass=2;
 // Time Trials: one racer, no item boxes, a Triple Mushroom at the start, and
 // the best finish per course kept on the SD card (milliseconds, 0 = none).
 static bool timeTrial=false,newRecord=false;
+// Time Trial ghosts (include/mkw/time_trial_ghost.hpp): the run raced (as
+// racer 1) or watched (as player 0), and this run's own recording. ghostTick
+// counts simulation ticks from the countdown, the recordings' frame index.
+static mkw::TimeTrialGhost ghostRun,ghostRecording;
+static int ghostMode=0; // 0 none, 1 race the ghost, 2 watch the replay
+static unsigned ghostTick=0;
 static std::array<uint32_t,32> bestTimes{};
 static constexpr const char* BestTimesPath="ux0:data/mkw/best-times.bin";
 static void loadBestTimes(){bestTimes={};if(FILE* f=fopen(BestTimesPath,"rb")){if(fread(bestTimes.data(),sizeof(uint32_t),bestTimes.size(),f)!=bestTimes.size())bestTimes={};fclose(f);}}
@@ -186,7 +201,16 @@ static const auto& selectedVehicle(){return mkw::GarageChoices[driverChoice*mkw:
 static void configure(K::System::RaceConfig* config,void* context) {
     if(replayData){config->setGhost(replayData);config->raceScenario().players[0].type=K::System::RaceConfig::Player::Type::Ghost;return;}
     auto& s=config->raceScenario();s.course=Courses[courseChoice].id;s.engineClass=u8(engineClass);s.mirror=mirrorMode;
-    if(fullRace){static_cast<mkw::RaceGrid*>(context)->configure(*config,driverChoice*mkw::VehiclesPerDriver+vehicleChoice,timeTrial?1:12);s.players[0].driftIsAuto=automaticDrift;return;}
+    if(fullRace){
+        auto* grid=static_cast<mkw::RaceGrid*>(context);
+        grid->setCpuRules(cpuLevelChoice,cpuVehicleChoice,uint32_t(svcGetSystemTick())^(uint32_t(courseChoice)*2654435761u));
+        const bool racingGhost=timeTrial&&ghostMode==1;
+        grid->setGhostChoice(racingGhost?int(ghostRun.choice):-1);
+        grid->configure(*config,driverChoice*mkw::VehiclesPerDriver+vehicleChoice,timeTrial?(racingGhost?2:1):12);s.players[0].driftIsAuto=automaticDrift;
+        // The ghost starts on the player's spot and drifts as it was driven.
+        s.sharedStart=racingGhost;if(racingGhost)s.players[1].driftIsAuto=ghostRun.driftAuto;
+        return;
+    }
     auto& p=s.players[0];p.type=K::System::RaceConfig::Player::Type::Local;
     const auto& driver=selectedVehicle();
     p.character=static_cast<K::Character>(driver.character);p.vehicle=static_cast<K::Vehicle>(driver.vehicle);p.driftIsAuto=false;
@@ -550,6 +574,11 @@ int main() {
             mkw::UiInput input{bool(navigation&(KEY_DUP|KEY_CPAD_UP)),bool(navigation&(KEY_DDOWN|KEY_CPAD_DOWN)),bool(navigation&(KEY_DLEFT|KEY_CPAD_LEFT)),bool(navigation&(KEY_DRIGHT|KEY_CPAD_RIGHT)),bool(down&KEY_A),bool(down&KEY_B),bool(down&KEY_START),bool(down&KEY_Y)};
             if(!revealed)input={};
             if(autoplay){input=autopilot->menu(menu,revealed&&!transition.active());if(autopilot->finished())return leave(mkw::UiAction::Exit);}
+            // The Ghost page offers the course's saved Time Trial ghost.
+            {static int ghostCourse=-1;
+             if(menu.page==mkw::UiPage::Course||menu.page==mkw::UiPage::Ghost){const int course=int(menu.selection.course);
+              if(course!=ghostCourse){ghostCourse=course;menu.ghostAvailable=mkw::TimeTrialGhost::exists(unsigned(course));}}
+             else ghostCourse=-1;}
             const auto beforeInput=menu;
             auto action=transition.input(menu,input);
             menuSound.input(beforeInput,menu,input,action);
@@ -714,8 +743,24 @@ int main() {
     }
     auto applySelection=[&](){timeTrial=menu.selection.mode==mkw::UiMode::TimeTrials;battleMode=menu.selection.mode==mkw::UiMode::Battle;coinRunnersMode=battleMode&&menu.selection.coinRunners;newRecord=false;if(timeTrial)loadBestTimes();
         courseChoice=battleMode?mkw::RaceCourseCount+std::min(menu.selection.battleStage,9u):menu.selection.course;driverChoice=menu.selection.driver;vehicleChoice=menu.selection.vehicle;automaticDrift=menu.selection.automatic;
-        mirrorMode=menu.selection.mode==mkw::UiMode::GrandPrix&&menu.selection.engineClass==mkw::UiEngineClass::Mirror;
-        engineClass=menu.selection.mode==mkw::UiMode::GrandPrix&&menu.selection.engineClass==mkw::UiEngineClass::CC50?0:menu.selection.mode==mkw::UiMode::GrandPrix&&menu.selection.engineClass==mkw::UiEngineClass::CC100?1:2;};
+        // Grand Prix (its class page) and VS (its rules) choose the class.
+        const bool classChosen=menu.selection.mode==mkw::UiMode::GrandPrix||menu.selection.mode==mkw::UiMode::VS;
+        mirrorMode=classChosen&&menu.selection.engineClass==mkw::UiEngineClass::Mirror;
+        engineClass=classChosen&&menu.selection.engineClass==mkw::UiEngineClass::CC50?0:classChosen&&menu.selection.engineClass==mkw::UiEngineClass::CC100?1:2;
+        // VS and Battle rules; Grand Prix and Time Trials keep the retail defaults.
+        const bool rules=menu.selection.mode==mkw::UiMode::VS||battleMode;
+        teamVs=menu.selection.mode==mkw::UiMode::VS&&menu.selection.teams;
+        vsRaceCount=menu.selection.mode==mkw::UiMode::VS?menu.selection.raceCount:mkw::RaceResultsFlow::VSRaces;
+        battleWinsTarget=menu.selection.battleWins;
+        cpuLevelChoice=rules?menu.selection.cpuLevel:1;
+        cpuVehicleChoice=rules?int(menu.selection.cpuVehicles):-1;
+        itemModeChoice=rules?menu.selection.itemMode:0;
+        // Time Trial ghost: raced as racer 1, or watched with its own racer.
+        ghostMode=0;ghostRun.clear();
+        if(timeTrial&&menu.selection.ghost<2&&ghostRun.load(courseChoice)){
+            ghostMode=menu.selection.ghost==0?1:2;
+            if(ghostMode==2){driverChoice=ghostRun.choice/mkw::VehiclesPerDriver;vehicleChoice=ghostRun.choice%mkw::VehiclesPerDriver;automaticDrift=ghostRun.driftAuto;}
+        }};
     if(fullRace){if(runMenu()!=mkw::UiAction::StartRace){finishAutoplay();renderer.waitForGpu();menuModels.reset(renderer);menuIcons.reset(renderer);menuRenderer.release();mkw::SoundSystem::instance().stop();mkw::MenuMovieAudio::shutdown();renderer.shutdown();gfxExit();return 0;}applySelection();menu.raceStarted();raceLoadStart=svcGetSystemTick();}
     // Balloon Battle: each kart's balloons in its team's colour (Common.szs balloon.brres).
     std::array<std::unique_ptr<mkw::Model>,2> battleBalloonModels;
@@ -802,11 +847,11 @@ int main() {
         if(restart)return;
         if(battleMode){
             // Next after a battle continues the set; anything else starts a new one.
-            if(battleSet.next&&battleSet.battle<BattleRounds)++battleSet.battle;
+            if(battleSet.next)++battleSet.battle;
             else{battleSet=BattleSet{};battleSet.battle=1;}
             battleSet.next=false;raceGrid.clearStartOrder();return;
         }
-        const bool continuing=vsSet.next&&vsSet.race<mkw::RaceResultsFlow::VSRaces&&vsSet.driver==driverChoice;
+        const bool continuing=vsSet.next&&vsSet.race<vsRaceCount&&vsSet.driver==driverChoice;
         if(continuing)++vsSet.race;
         else{vsSet=VsSet{};vsSet.race=1;vsSet.driver=driverChoice;}
         vsSet.next=false;
@@ -847,11 +892,12 @@ int main() {
     // order with the VS points before this race and the points it adds.
     auto fillResults=[&](){
         const auto& scenario=K::System::RaceConfig::Instance()->raceScenario();
-        const unsigned n=std::min(raceGrid.count(),12u);
+        // A Time Trial's board shows the player alone (not the ghost).
+        const unsigned n=timeTrial?1u:std::min(raceGrid.count(),12u);
         std::array<unsigned,12> order{};for(unsigned i=0;i<n;++i)order[i]=i;
         std::stable_sort(order.begin(),order.begin()+n,[&](unsigned a,unsigned b){return battleMode?balloonBattle.rank(a)<balloonBattle.rank(b):raceGrid.rank(a)<raceGrid.rank(b);});
         std::array<mkw::RaceResultEntry,12> rows{};
-        int length=kQa?snprintf(line,sizeof line,"results race %u/%u:",vsSet.race,mkw::RaceResultsFlow::VSRaces):0;
+        int length=kQa?snprintf(line,sizeof line,"results race %u/%u:",vsSet.race,vsRaceCount):0;
         for(unsigned p=0;p<n;++p){
             const unsigned i=order[p];auto& r=rows[p];
             r.racer=uint8_t(i);r.character=uint8_t(scenario.players[i].character);r.human=i==0;
@@ -861,15 +907,18 @@ int main() {
                 r.previous=battleSet.points[i];r.gain=uint16_t(balloonBattle.score(i));r.team=uint8_t(mkw::BalloonBattle::team(i));
                 battleSet.points[i]=uint16_t(std::min(9999u,unsigned(r.previous)+r.gain));
             }else{
-                r.previous=vsSet.points[i];
+                r.previous=vsSet.points[i];if(teamVs)r.team=uint8_t(mkw::BalloonBattle::team(i));
                 r.gain=timeTrial?0:uint16_t(mkw::RaceResultsFlow::points(n,p+1));
                 vsSet.points[i]=uint16_t(std::min(99999u,unsigned(r.previous)+r.gain));
             }
             if(kQa&&length>0&&size_t(length)<sizeof line)length+=snprintf(line+length,sizeof line-size_t(length)," %u:%u+%u",i,unsigned(r.previous),unsigned(r.gain));
         }
         report(line);
+        // A battle won by a team counts toward the set's "Wins".
+        if(battleMode&&balloonBattle.leader()<2)++battleSet.wins[balloonBattle.leader()];
+        const bool battleOver=battleSet.wins[0]>=battleWinsTarget||battleSet.wins[1]>=battleWinsTarget;
         // Time Trials: Next returns to the course choice; no set to finish.
-        results.fill(rows.data(),n,battleMode?battleSet.battle>=BattleRounds:!timeTrial&&vsSet.race>=mkw::RaceResultsFlow::VSRaces);
+        results.fill(rows.data(),n,battleMode?battleOver:!timeTrial&&vsSet.race>=vsRaceCount);
     };
     auto startIntro=[&](){
         intro.stop();
@@ -1039,10 +1088,14 @@ int main() {
         if(!fullRace)return;
         battleTicks=0;
         if(!raceGrid.reset()){trackLoadFailed=true;report("FAIL course CPU route: race suspended; choose another map");}
-        raceItems->setBattle(battleMode?(coinRunnersMode?2:1):0);
+        raceItems->setBattle(battleMode?(coinRunnersMode?2:1):0);raceItems->setItemMode(itemModeChoice);
         raceItems->resetFromCourse(raceGrid.count());
         if(!raceItems->oddsReady()){trackLoadFailed=true;report("FAIL original item odds load");}
-        if(timeTrial){raceItems->reset({},raceGrid.count());raceItems->give(0,mkw::ItemKind::TripleMushroom);newRecord=false;}
+        if(timeTrial){raceItems->reset({},raceGrid.count());raceItems->give(0,mkw::ItemKind::TripleMushroom);if(ghostMode==1)raceItems->give(1,mkw::ItemKind::TripleMushroom);newRecord=false;}
+        // The ghost never touches the player; this run records from the countdown.
+        K::Kart::KartCollide::SetIntangibleMask(timeTrial&&ghostMode==1?2:0);opponents.ghostMask=timeTrial&&ghostMode==1?2:0;
+        ghostTick=0;ghostRecording.clear();ghostRecording.course=courseChoice;
+        ghostRecording.choice=driverChoice*mkw::VehiclesPerDriver+vehicleChoice;ghostRecording.driftAuto=automaticDrift;
         battleFalling={};
         balloonBattle.reset(raceGrid.count(),coinRunnersMode?mkw::BalloonBattle::Mode::Coin:mkw::BalloonBattle::Mode::Balloon);
         if(reload){if(!opponents.load()){trackLoadFailed=true;report("FAIL opponent graphics load");}}
@@ -1190,7 +1243,7 @@ int main() {
         if(!fullRace)animationPass&=loadDriver();
         else if(trackLoadFailed||!loadDriver())trackLoadFailed=true;
         stage("player");
-        if(fullRace&&!trackLoadFailed&&(!raceHud.load()||(battleMode&&!raceHud.loadBattle()))){trackLoadFailed=true;report("FAIL item or HUD asset load");}
+        if(fullRace&&!trackLoadFailed&&(!raceHud.load()||((battleMode||teamVs)&&!raceHud.loadBattle()))){trackLoadFailed=true;report("FAIL item or HUD asset load");}
         // Lakitu is presentation only: skip it rather than crowd LINEAR on large courses.
         if(fullRace&&!trackLoadFailed&&!(linearSpaceFree()>4u*1024*1024&&lakitu.load()))report("Lakitu unavailable");
         if(fullRace&&!trackLoadFailed&&!flowUi.load())report("FAIL race flow UI load");
@@ -1353,6 +1406,31 @@ int main() {
         }
         ceremonyQueued=true;
     };
+    // Team VS and Battle: the winning team on the flat stand (no drive, no
+    // podium). Battle sets go to the team with the wins, Team VS to the
+    // higher points total; a tie goes to the player's team.
+    auto queueTeamCeremony=[&](){
+        const auto& scenario=K::System::RaceConfig::Instance()->raceScenario();
+        const unsigned n=std::min(raceGrid.count(),12u);
+        auto points=[&](unsigned i){return unsigned(battleMode?battleSet.points[i]:vsSet.points[i]);};
+        std::array<unsigned,2> total{};for(unsigned i=0;i<n;++i)total[mkw::BalloonBattle::team(i)]+=points(i);
+        const unsigned mine=mkw::BalloonBattle::team(0);
+        unsigned winner=battleMode?(battleSet.wins[0]==battleSet.wins[1]?mine:battleSet.wins[0]>battleSet.wins[1]?0u:1u)
+                                  :(total[0]==total[1]?mine:total[0]>total[1]?0u:1u);
+        std::array<unsigned,12> order{};unsigned members=0;
+        for(unsigned i=0;i<n;++i)if(mkw::BalloonBattle::team(i)==winner)order[members++]=i;
+        std::stable_sort(order.begin(),order.begin()+members,[&](unsigned a,unsigned b){return points(a)>points(b);});
+        ceremonySetup={};ceremonySetup.team=true;ceremonySetup.won=winner==mine;ceremonySetup.count=std::min(members,6u);
+        ceremonySetup.engineClass=mirrorMode?3u:engineClass;
+        for(unsigned p=0;p<ceremonySetup.count;++p){
+            const auto& player=scenario.players[order[p]];
+            ceremonySetup.character[p]=unsigned(player.character);ceremonySetup.vehicle[p]=unsigned(player.vehicle);
+            if(order[p]==0)ceremonySetup.player=int(p);
+        }
+        standingsCount=n;
+        for(unsigned i=0;i<n;++i){auto& r=standingsRows[i];r={};r.racer=uint8_t(i);r.character=uint8_t(scenario.players[i].character);r.human=i==0;r.previous=uint16_t(points(i));r.team=uint8_t(mkw::BalloonBattle::team(i));}
+        ceremonyQueued=true;
+    };
     auto runCeremony=[&](){
         renderer.frameSync=true;renderer.setDeferred(false);renderer.waitForGpu();
         auto ceremony=std::make_unique<mkw::AwardCeremony>();
@@ -1462,7 +1540,7 @@ int main() {
                         if(!trackLoadFailed&&!loadDriver())trackLoadFailed=true;
                         stage("player");
                         driftEffects.reset();raceEffects.reset();resetKartFx();cameraShake.reset();shakeActionStarts=~0u;lightningFlash={};boostFov=0;driverPose={};wasTricking=false;wasBoosting=false;trickModel.reset();++restarts;
-                        if(!trackLoadFailed&&(!raceHud.load()||(battleMode&&!raceHud.loadBattle()))){trackLoadFailed=true;report("FAIL item or HUD asset load");}
+                        if(!trackLoadFailed&&(!raceHud.load()||((battleMode||teamVs)&&!raceHud.loadBattle()))){trackLoadFailed=true;report("FAIL item or HUD asset load");}
                         if(!trackLoadFailed&&!(linearSpaceFree()>4u*1024*1024&&lakitu.load()))report("Lakitu unavailable");
                         if(!trackLoadFailed&&!flowUi.load())report("FAIL race flow UI load");
                         if(!trackLoadFailed){loadBottomScreen();moveCourseTexturesToVram();}
@@ -1529,11 +1607,16 @@ int main() {
             };
             // R off a ramp (Mario Kart 7): a press shortly before or on a trick
             // ramp's lip (Kinoko's Trickable window) tricks instead of hopping.
-            // X/Y still trick and wheelie anywhere. QA owns X/Y.
-            static unsigned rampTrickFrames=0;
+            // Boost ramps are not Trickable: KartJump::calcInput accepts them by
+            // their boost ramp type, which the take-off clears, so it is held
+            // for the same 8 frames as the press. X/Y still trick and wheelie
+            // anywhere. QA owns X/Y.
+            static unsigned rampTrickFrames=0,boostRampFrames=0;
             if(down&KEY_R)rampTrickFrames=8;else if(rampTrickFrames)--rampTrickFrames;
+            const auto* localKart=K::Kart::KartObjectManager::Instance()->object(0);
+            if(localKart->state()->boostRampType()>=0)boostRampFrames=8;else if(boostRampFrames)--boostRampFrames;
             const bool rampTrick=fullRace&&rampTrickFrames&&(held&KEY_R)&&
-                K::Kart::KartObjectManager::Instance()->object(0)->status().onBit(K::Kart::eStatus::Trickable);
+                (localKart->status().onBit(K::Kart::eStatus::Trickable)||boostRampFrames);
             if(trick==K::System::Trick::None){
                 if(rampTrick){trick=padTrick();buttons=(buttons&~10u)|(held&KEY_B?2u:0u);}
                 else if(!qaMode&&(held&(KEY_X|KEY_Y)))trick=padTrick();
@@ -1554,9 +1637,15 @@ int main() {
             // pacing-dependent presentation (name balloons) matches across builds.
             else if(raceCapture)accumulator=2;
             while(accumulator>=1){auto tick=svcGetSystemTick();bool jumpAction=false;
+                // Time Trial ghosts: from the countdown, a watched replay drives
+                // the player and a raced ghost drives racer 1, frame by frame.
+                const bool ghostLive=fullRace&&timeTrial&&unsigned(K::System::RaceManager::Instance()->stage())>=1;
+                const mkw::GhostFrame* ghostFrame=ghostLive&&ghostMode?ghostRun.frame(ghostTick):nullptr;
+                unsigned stepButtons=buttons;int stepStick=stick;auto stepTrick=trick;
+                if(ghostMode==2&&ghostFrame){stepButtons=ghostFrame->buttons;stepStick=ghostFrame->stick;stepTrick=K::System::Trick(ghostFrame->trick);}
                 // Restore current human input every simulation tick before any
                 // temporary autopilot override, including catch-up frame exits.
-                controller->setInputsRawStick(buttons,stick+7,7,trick);
+                controller->setInputsRawStick(stepButtons,stepStick+7,7,stepTrick);
                 if(fullRace){
                     // After the goal retail hands the player to its AI
                     // (AIEngine PostRaceDriving, USA 0x80728C28): the CPU
@@ -1564,6 +1653,7 @@ int main() {
                     const bool afterGoal=raceGrid.finished()||(battleMode&&battleTicks>=mkw::BalloonBattle::DurationTicks);
                     raceGrid.driveLocal=afterGoal||(autoplay&&autopilot->routeDrive());
                     std::array<mkw::ItemInput,12> inputs{};inputs[0]={bool(held&KEY_L),pad.dy < -40,pad.dy > 40};
+                    if(ghostMode==2)inputs[0]=ghostFrame?mkw::ItemInput{bool(ghostFrame->items&1),bool(ghostFrame->items&2),bool(ghostFrame->items&4)}:mkw::ItemInput{};
                     if(afterGoal)inputs[0]={};
                     else if(raceGrid.driveLocal){
                         inputs[0]=raceItems->autoItemInput(0);
@@ -1579,10 +1669,14 @@ int main() {
                     }
                     // CPU items: retail AIItemRace commands from the previous AI tick.
                     for(unsigned i=1;i<raceGrid.count();++i){
+                        if(raceGrid.ghost(i)){inputs[i]=ghostFrame?mkw::ItemInput{bool(ghostFrame->items&1),bool(ghostFrame->items&2),bool(ghostFrame->items&4)}:mkw::ItemInput{};continue;}
                         if(battleMode){inputs[i]=battleItemInput(i);continue;}
                         if(!raceGrid.ai().ready()){inputs[i]=raceItems->autoItemInput(i);continue;}
                         const auto& c=raceGrid.ai().itemCommand(i);inputs[i]={c.use,c.backwards,c.forwards};
                     }
+                    // This run's ghost: what the kart was given this tick, until the goal.
+                    if(ghostLive&&ghostMode!=2&&!raceGrid.finished())
+                        ghostRecording.frames.push_back({uint8_t(stepButtons),int8_t(stepStick),uint8_t(stepTrick),uint8_t((inputs[0].use?1:0)|(inputs[0].backwards?2:0)|(inputs[0].forwards?4:0))});
                     raceItems->beforeStepNative(inputs.data(),raceGrid.count(),K::System::RaceManager::Instance()->isStageReached(K::System::RaceManager::Stage::Race),raceGrid.bulletNoEndPlayers());
                     for(unsigned i=0;i<raceGrid.count();++i){
                         const auto& h=raceItems->hud(i);const bool held=h.deployed&&h.heldCharges>0;
@@ -1603,6 +1697,12 @@ int main() {
                     // Resolve item activation/expiry before choosing this tick's
                     // controller, including CPU Bullet Bills and the handoff back.
                     raceGrid.beforeStep(raceItems->bulletPlayers());
+                    if(ghostMode==1&&raceGrid.count()>1){
+                        auto* ghostPad=K::System::KPadDirector::Instance()->hostController(1);
+                        if(ghostFrame)ghostPad->setInputsRawStick(ghostFrame->buttons,unsigned(ghostFrame->stick+7),7,K::System::Trick(ghostFrame->trick));
+                        else ghostPad->setInputsRawStick(0,7,7,K::System::Trick::None);
+                    }
+                    if(ghostLive)++ghostTick;
                 }
                 if(autoplay&&cpuLogEvery&&fullRace&&physicsSteps%cpuLogEvery==0){
                     auto* manager=K::System::RaceManager::Instance();
@@ -1713,7 +1813,11 @@ int main() {
                         raceEvents.emit(mkw::RaceEvent::Finish,physicsSteps,int(battleMode?balloonBattle.rank(0):raceGrid.rank()));results.finish();
                         if(timeTrial&&courseChoice<bestTimes.size()){
                             const auto& t=race->player(0).raceTimer();const uint32_t ms=uint32_t(t.min)*60000u+uint32_t(t.sec)*1000u+uint32_t(t.mil);
-                            if(ms&&(!bestTimes[courseChoice]||ms<bestTimes[courseChoice])){bestTimes[courseChoice]=ms;newRecord=true;saveBestTimes();}
+                            // A watched replay sets no record; a new best also keeps its ghost.
+                            if(ghostMode!=2&&ms&&(!bestTimes[courseChoice]||ms<bestTimes[courseChoice])){
+                                bestTimes[courseChoice]=ms;newRecord=true;saveBestTimes();
+                                ghostRecording.milliseconds=ms;if(!ghostRecording.save())report("ghost save failed");
+                            }
                         }
                     }
                     {
@@ -1725,13 +1829,14 @@ int main() {
                         if(events&Flow::EventMenuShown){menu.finish(results.finalRace());raceEvents.emit(mkw::RaceEvent::MenuShown,physicsSteps,int(results.buttonCount()));}
                         if(events&Flow::EventOptionChosen){
                             raceEvents.emit(mkw::RaceEvent::OptionChosen,physicsSteps,results.chosen());
-                            LOGF("race end option %s (race %u/%u)",results.chosen()==0?(results.finalRace()?"Next":"Next Race"):"Quit Game",vsSet.race,Flow::VSRaces);
+                            LOGF("race end option %s (race %u/%u)",results.chosen()==0?(results.finalRace()?"Next":"Next Race"):"Quit Game",vsSet.race,vsRaceCount);
                         }
                         if(events&Flow::EventLeave){
                             // The race has faded to black (RaceResultsFlow::Leaving).
                             sectionFadeIn=true;
                             vsSet.next=results.chosen()==0&&!results.finalRace();battleSet.next=battleMode&&vsSet.next;
                             if(results.chosen()==0&&results.finalRace()&&menu.selection.mode==mkw::UiMode::GrandPrix&&!battleMode&&!timeTrial)queueCeremony();
+                            else if(results.chosen()==0&&results.finalRace()&&(teamVs||battleMode))queueTeamCeremony();
                             if(menu.page==mkw::UiPage::Results){menu.cursor=unsigned(std::max(0,results.chosen()));nextRaceQueued=menu.input({false,false,false,false,true})==mkw::UiAction::StartRace;}
                         }
                         flowUi.step(results);
@@ -2219,6 +2324,11 @@ int main() {
                 }
             }
             if(fullRace)raceHud.drawWorld(renderer,*raceItems,vec(cameraKart->pos()),physicsSteps);
+            // Coin Runners: the player's coins piled over the coin count.
+            if(fullRace&&coinRunnersMode&&!intro.active()&&!results.active()){
+                mkw::Bounds bounds;
+                if(const auto* coin=courseObjects.coinModel(&bounds))raceHud.drawCoinPile(renderer,*coin,bounds,balloonBattle.score(0));
+            }
             if(fullRace)lakitu.draw(renderer);
             profiler->mark(Profile::Items);
             if(playerJobQueued)mkw::jobWorker().finish(playerJob);else posePlayer();
@@ -2265,6 +2375,7 @@ int main() {
             // The Vita's one screen: the Wii's small course map at the right.
             if(fullRace&&!intro.active()&&!results.hudGone()&&bottomScreen.active()){
                 mkw::fillBottomView(bottomView,raceGrid,*raceItems,intro.active(),physicsSteps,results.leaveFade());
+                if(teamVs)for(unsigned i=0;i<std::min(bottomView.racers,12u);++i)bottomView.racer[i].team=uint8_t(mkw::BalloonBattle::team(i));
                 if(battleMode){
                     // The battle clock counts down from three minutes; faces carry their team.
                     const unsigned left=mkw::BalloonBattle::DurationTicks-std::min(battleTicks,mkw::BalloonBattle::DurationTicks);
@@ -2278,7 +2389,7 @@ int main() {
                 // Battle: team score, the player's points (coins) and the +1/-1 popup.
                 raceHud.battle={battleMode,balloonBattle.teamScore(0),balloonBattle.teamScore(1),balloonBattle.score(0),
                                 mkw::BalloonBattle::team(0),balloonBattle.popup(),balloonBattle.popupAge()};
-                raceHud.drawOverlay(renderer,*raceItems,unsigned(race->stage()),race->timer(),battleMode?balloonBattle.rank(0):raceGrid.rank(),raceGrid.lap(),battleMode?battleOver:raceGrid.finished(),physicsSteps,results.finishFrame(),results.hudSlide());
+                raceHud.drawOverlay(renderer,*raceItems,unsigned(race->stage()),race->timer(),battleMode?balloonBattle.rank(0):timeTrial?1u:raceGrid.rank(),raceGrid.lap(),battleMode?battleOver:raceGrid.finished(),physicsSteps,results.finishFrame(),results.hudSlide());
                 if(timeTrial&&courseChoice<bestTimes.size()&&!results.hudGone()){
                     // Best time under the lap counter; NEW RECORD! once beaten.
                     char best[32];if(bestTimes[courseChoice]){char t[16];formatTime(t,sizeof t,bestTimes[courseChoice]);snprintf(best,sizeof best,"BEST %s",t);}else snprintf(best,sizeof best,"BEST -:--.---");
@@ -2287,9 +2398,9 @@ int main() {
                 }}
             renderer.setScreenDepth(renderer.stereoLayer(mkw::stereo::HudLayer));
             if(fullRace)flowUi.drawResults(renderer,results);
-            if(fullRace&&battleMode&&results.boardVisible()){
+            if(fullRace&&(battleMode||teamVs)&&results.boardVisible()){
                 // The set's team totals over the board; the winners pulse on the last one.
-                unsigned red=0,blue=0;for(unsigned i=0;i<raceGrid.count();++i)(mkw::BalloonBattle::team(i)?blue:red)+=battleSet.points[i];
+                unsigned red=0,blue=0;for(unsigned i=0;i<raceGrid.count();++i)(mkw::BalloonBattle::team(i)?blue:red)+=battleMode?battleSet.points[i]:vsSet.points[i];
                 raceHud.drawBattleTotals(renderer,red,blue,results.finalRace()&&red!=blue?(red>blue?0u:1u):2u,physicsSteps);
             }
             renderer.setScreenDepth(0);

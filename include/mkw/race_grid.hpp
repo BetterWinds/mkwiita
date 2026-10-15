@@ -2,6 +2,7 @@
 #include <mkw/math.hpp>
 #include <mkw/cpu_speed.hpp>
 #include <mkw/cpu_ai.hpp>
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -56,6 +57,14 @@ public:
     // the racer index. Not a permutation of 0..count-1: ignored.
     void setStartOrder(const std::array<uint8_t,Capacity>& slots){startSlots_=slots;}
     void clearStartOrder(){startSlots_.fill(0xff);}
+    // VS/Battle rules for the next configure()/reset(): CPU level 0 Easy,
+    // 1 Normal, 2 Hard; CPU vehicles -1 the standard kart (Grand Prix), 0 All,
+    // 1 karts only, 2 bikes only; seed picks each CPU's machine.
+    void setCpuRules(unsigned level,int vehicles,uint32_t seed){cpuLevel_=std::min(level,2u);cpuVehicles_=vehicles;cpuSeed_=seed;}
+    // Time Trial ghost: racer 1 takes this garage choice (its inputs come from
+    // the recorded run, not the AI); -1 for none.
+    void setGhostChoice(int choice){ghostChoice_=choice;}
+    bool ghost(unsigned racer) const{return ghostChoice_>=0&&racer==1;}
     CpuAi& ai(){return ai_;}
 private:
     void forwardBumps();
@@ -68,6 +77,7 @@ private:
     std::array<bool,Capacity> finished_{};
     CpuSpeedParam speedParam_{};bool speedParamReady_=false;float lapDistance_=0;
     unsigned count_=1;bool battleArena_=false;
+    unsigned cpuLevel_=1;int cpuVehicles_=-1;uint32_t cpuSeed_=0;int ghostChoice_=-1;
     std::array<uint8_t,Capacity> startSlots_{0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff};
 };
 }

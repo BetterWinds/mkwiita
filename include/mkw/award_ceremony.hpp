@@ -22,7 +22,8 @@ class AwardCeremony {
 public:
     struct Setup {
         // Kinoko::Character and Kinoko::Vehicle of first, second and third place.
-        std::array<unsigned,3> character{},vehicle{};
+        // Up to three on the podium, or a team's six (team).
+        std::array<unsigned,6> character{},vehicle{};
         unsigned count=0;
         unsigned cup=0;     // cup index (Mushroom 0 .. Lightning 7)
         bool won=false;     // the player is in the top three
@@ -30,6 +31,10 @@ public:
         int player=-1;      // the player's place among them (0..2), or -1
         unsigned place=1;   // the player's final place (1..12)
         unsigned engineClass=2; // 0 50cc, 1 100cc, 2 150cc, 3 Mirror
+        // Team VS and Battle: no winning run and no podium; the winning team
+        // stands on the flat award_v_stand2 and every member plays demowin.
+        // won: the player's team won.
+        bool team=false;
     };
     ~AwardCeremony();
     // Main thread, render thread idle and not deferred. On false the scene is
@@ -81,7 +86,7 @@ private:
     Setup setup_;
     std::vector<std::unique_ptr<Model>> stage_,sky_;
     std::unique_ptr<Model> stand_,shadow_,trophy_;
-    std::array<Racer,3> racers_;
+    std::array<Racer,6> racers_;
     std::array<Kart,3> karts_;
     std::vector<Camera> cameras_;
     Text headline_,placeText_,classText_,cupName_,rankLabel_,gradeText_;

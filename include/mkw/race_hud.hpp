@@ -3,8 +3,10 @@
 #include <memory>
 #include <mkw/math.hpp>
 #include <mkw/race_hud_layout.hpp>
+#include <mkw/visibility.hpp>
 namespace mkw {
 class Renderer;
+class Model;
 class RaceItems;
 struct CountdownCue {int digit=0;bool go=false;float scale=1,alpha=1;unsigned frame=0;};
 // The original 240-tick countdown. RacePage_afterCalc (USA 0x80835A28) sets
@@ -45,6 +47,10 @@ public:
     // The set's team totals at the top centre (battle_total_point total_point_3),
     // over the results; winner 0 red, 1 blue pulses (2: none yet).
     void drawBattleTotals(Renderer&,unsigned red,unsigned blue,unsigned winner,unsigned tick);
+    // Coin Runners: the player's coins as a pile of the arena's coin model over
+    // the coin count, columns of ten from the left. Call in the 3D pass.
+    static constexpr unsigned CoinPileColumn=10,CoinPileColumns=3;
+    void drawCoinPile(Renderer&,const Model& coin,const Bounds& bounds,unsigned coins);
 private:
     void drawBattle(Renderer&,float exitLift);
     struct Impl;std::unique_ptr<Impl> impl_;

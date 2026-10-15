@@ -273,6 +273,9 @@ public:
     // Billboard in the active camera's basis. Positive forwardOffset moves
     // toward the camera's viewing direction; upOffset uses camera up.
     void drawCameraFacing(const Model& model,Vec3 anchor,float upOffset,float forwardOffset,float scale);
+    // A model placed in camera space (x right, y up, z toward the viewer; the
+    // camera at the origin): HUD objects drawn as 3D models in front of the view.
+    void drawCameraSpace(const Model& model,const C3D_Mtx& cameraSpace);
     // The same camera-facing basis as a transform (local +Z toward the viewer).
     C3D_Mtx cameraFacing(Vec3 position,float scale) const;
     // Camera position in world space for the current frame.

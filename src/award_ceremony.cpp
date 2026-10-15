@@ -23,6 +23,9 @@ constexpr const char* Trophies[8]={"kinoko","flower","star","special","koura","b
 // side blocks at 1295 over |x| 175..375, all of them z 27750..27950. The camera
 // moves look down -z, so second stands at screen left.
 constexpr Vec3 Spots[3]={{0,1364,27850},{-275,1295,27850},{275,1295,27850}};
+// The team stand (award_v_stand2): flat at y 1304 over x -500..500, z 27510..28000;
+// up to six winners in a row across it.
+constexpr float TeamTop=1304,TeamZ=27755,TeamSpacing=166;
 constexpr unsigned FadeTicks=30;
 // The podium's last frame holds this long before the standings.
 constexpr unsigned PodiumHold=180;
@@ -87,16 +90,17 @@ unsigned AwardCeremony::grade(unsigned points){
 }
 
 bool AwardCeremony::load(const Setup& setup){
-    setup_=setup;setup_.count=std::min(setup.count,3u);
+    setup_=setup;setup_.count=std::min(setup.count,setup.team?6u:3u);
     shot_=shotTick_=tick_=ending_=driveTicks_=podiumTicks_=standingsTicks_=0;skipping_=false;driving_=false;standings_=false;cameras_.clear();confetti_.clear();
     if(FILE* f=std::fopen("models/ceremony.json","r"))std::fclose(f);else return false;
-    const unsigned stage=setup_.won?55:56;
+    // The team stand sits where the podium does, on the winning run.
+    const unsigned stage=setup_.won||setup_.team?55:56;
     char list[64];
     std::snprintf(list,sizeof list,"models/course_%02u.list",stage);
     if(!loadList(list,stage_)){stage_.clear();return false;}
     std::snprintf(list,sizeof list,"models/course_%02u_sky.list",stage);
     if(!loadList(list,sky_))sky_.clear();
-    stand_=loadModel("award_v_stand1");shadow_=loadModel("award_shadow");
+    stand_=loadModel(setup_.team?"award_v_stand2":"award_v_stand1");shadow_=loadModel("award_shadow");
     char trophy[32];std::snprintf(trophy,sizeof trophy,"trophy_%s",Trophies[std::min(setup_.cup,7u)]);
     trophy_=loadModel(trophy);
     for(unsigned i=0;i<setup_.count;++i){
@@ -109,16 +113,16 @@ bool AwardCeremony::load(const Setup& setup){
         r.animation=std::make_unique<DriverAnimation>();
         if(!r.animation->load(path,*r.model)){r.animation.reset();}
         else{
-            const char* clip=i==0?"demowin":"demooth";
+            const char* clip=i==0||setup_.team?"demowin":"demooth";
             r.clip=r.animation->find(clip);r.face=r.animation->face(clip);
         }
-        r.position=Spots[i];
+        r.position=setup_.team?Vec3{(float(i)-float(setup_.count-1)*.5f)*TeamSpacing,TeamTop,TeamZ}:Spots[i];
     }
     // The podium: 123dai's demowin03 (it ends facing the podium); the losing
     // scene is one fixed shot from across the course. A win drives the winning
     // run before it (loadKarts); the standings follow both.
     std::vector<const char*> shots;
-    if(setup_.won)shots={"demowin03"};else shots={"demolos01_16vs9"};
+    if(setup_.won||setup_.team)shots={"demowin03"};else shots={"demolos01_16vs9"};
     for(std::size_t i=0;i<shots.size();++i){
         Camera c;
         if(!loadCamera(shots[i],c.frames,c.count))return false;
@@ -127,7 +131,7 @@ bool AwardCeremony::load(const Setup& setup){
         cameras_.push_back(std::move(c));
     }
     // Without the karts, their lanes or the course cameras, the drive is left out.
-    driving_=setup_.won&&loadKarts();
+    driving_=setup_.won&&!setup_.team&&loadKarts();
     // Overlay: the closing line, the cup and the rank grade.
     std::array<uint16_t,TextCount*2> sizes{};
     if(FILE* f=std::fopen("models/ceremony/text.bin","rb")){
@@ -150,7 +154,7 @@ bool AwardCeremony::load(const Setup& setup){
     static const char* cupFiles[8]={"kinoko","flower","star","oukan","koura","banana","konoha","thunder"};
     char path[96];std::snprintf(path,sizeof path,"textures/ui/award/award__tt_cup_icon_%s_00.t3x",cupFiles[std::min(setup_.cup,7u)]);
     cupIcon_.load(path);
-    if(setup_.won)confettiTexture_.load("textures/ui/award/winning_run__tt_block_16x16.t3x");
+    if(setup_.won||setup_.team)confettiTexture_.load("textures/ui/award/winning_run__tt_block_16x16.t3x");
     return true;
 }
 
@@ -294,7 +298,7 @@ bool AwardCeremony::step(unsigned ticks){
         if(shot_>=cameras_.size())return false;
         const auto& c=cameras_[shot_];
         if(!standings_)++podiumTicks_;
-        if(setup_.won&&confettiTexture_.ready){
+        if((setup_.won||setup_.team)&&confettiTexture_.ready){
             // Confetti: a burst as the podium opens, then a steady fall.
             unsigned seed=tick_*2654435761u;
             auto random=[&](){seed=seed*1664525u+1013904223u;return float(seed>>8)/16777216.f;};
@@ -367,6 +371,13 @@ void AwardCeremony::drawOverlay(Renderer& renderer,unsigned settled,bool standin
     };
     constexpr uint32_t Gold0=0xfff8a0ffu,Gold1=0xffc020ffu;
     constexpr float Top=22.f,Icon=28.f,Line=12.f;
+    // Teams have no cup, class or grade: the headline only.
+    if(setup_.team){
+        if(standings)return;
+        if(setup_.won)text(headline_,display::CenterX,62.f,24.f,Gold0,Gold1,.5f);
+        else text(headline_,display::CenterX,62.f,22.f,0xc8ffffffu,0x40d8ffffu,.5f);
+        return;
+    }
     if(cupIcon_.ready)
         renderer.drawScreenSpriteRegion(cupIcon_,12.f,Top-Icon*.5f,Icon,Icon,0,0,128.f/float(cupIcon_.gpu.width),128.f/float(cupIcon_.gpu.height),alpha);
     float x=12.f+Icon+5.f;
@@ -403,7 +414,7 @@ void AwardCeremony::draw(Renderer& renderer,void (*standingsBoard)(void*),void* 
         const Vec3 target=aim?Vec3{f[6],f[7],f[8]}:eye-back*1000.f;
         lastEye_=eye;lastTarget_=target;
         renderer.setFov(f[10]>1.f?f[10]:40.f);
-        if(standings_&&setup_.won){
+        if(standings_&&setup_.won&&!setup_.team){
             // The standings look up from the podium into the sky, where the
             // trophy turns (the losing scene keeps its view).
             const Vec3 ahead=normalized(Vec3{target.x-eye.x,0,target.z-eye.z},{0,0,-1});
@@ -417,10 +428,10 @@ void AwardCeremony::draw(Renderer& renderer,void (*standingsBoard)(void*),void* 
     if(stand_)renderer.draw(*stand_,identity);
     // Racers, karts and the trophy keep the course grade: v3 models otherwise
     // fall to the legacy 0.35 floor and render nearly black.
-    std::array<Renderer::ShadowVolume,3> shadows{};unsigned shadowCount=0;
+    std::array<Renderer::ShadowVolume,6> shadows{};unsigned shadowCount=0;
     if(driving_)drawKarts(renderer);
     else{
-        for(unsigned i=0;i<setup_.count&&!(standings_&&setup_.won);++i){
+        for(unsigned i=0;i<setup_.count&&!(standings_&&setup_.won&&!setup_.team);++i){
             auto& r=racers_[i];if(!r.model)continue;
             if(r.animation&&r.clip>=0){
                 const float duration=std::max(r.animation->duration(unsigned(r.clip)),1.f);
@@ -432,7 +443,7 @@ void AwardCeremony::draw(Renderer& renderer,void (*standingsBoard)(void*),void* 
             renderer.draw(*r.model,m);
             if(shadow_)shadows[shadowCount++]={shadow_.get(),m};
         }
-        if(trophy_&&standings_&&setup_.won){
+        if(trophy_&&standings_&&setup_.won&&!setup_.team){
             // The cup's trophy in the sky behind the standings, turning slowly.
             const Vec3 ahead=normalized(Vec3{lastTarget_.x-lastEye_.x,0,lastTarget_.z-lastEye_.z},{0,0,-1});
             const Vec3 at=lastEye_+ahead*900.f+Vec3{0,560.f,0};
