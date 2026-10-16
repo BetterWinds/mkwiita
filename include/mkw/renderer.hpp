@@ -273,6 +273,9 @@ public:
     // Billboard in the active camera's basis. Positive forwardOffset moves
     // toward the camera's viewing direction; upOffset uses camera up.
     void drawCameraFacing(const Model& model,Vec3 anchor,float upOffset,float forwardOffset,float scale);
+    // A model placed in camera space (x right, y up, z toward the viewer; the
+    // camera at the origin): HUD objects drawn as 3D models in front of the view.
+    void drawCameraSpace(const Model& model,const C3D_Mtx& cameraSpace);
     // The same camera-facing basis as a transform (local +Z toward the viewer).
     C3D_Mtx cameraFacing(Vec3 position,float scale) const;
     // Camera position in world space for the current frame.
@@ -566,7 +569,7 @@ private:
     int spriteRunFirst_=0;
     const C3D_Tex* spriteRunTexture_=nullptr;
     bool spriteRunAdditive_=false;
-    static constexpr unsigned kTextVertices=12288;
+    static constexpr unsigned kTextVertices=32768; // the Vita settings page and the whats-new pop-up need about 20,000
     // Text uses the head of text_; the bottom screen's sprites its tail. While no
     // frame draws, loadVramTexture stages uploads through the head as well.
     static constexpr unsigned kTextVertexLimit=kTextVertices-kBottomSpriteCapacity*6;

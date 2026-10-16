@@ -25,6 +25,8 @@
 #include <vector>
 #include <malloc.h>
 #include <sys/stat.h>
+// A system dialog (the license name keyboard) is open: the swap draws it.
+bool vitaCommonDialog = false;
 
 using namespace c3dvita;
 
@@ -54,6 +56,9 @@ inline int scaledSpan(int from, int size) { return scaled(from + size) - scaled(
 constexpr int DisplayWidth = 960, DisplayHeight = 544;
 
 bool displayReady = false;
+// Vertex attribute arrays left enabled by the last draw: enable/disable only
+// on change (the disabled default value is always 0,0,0,1).
+bool attribEnabled[16] = {};
 
 // ---- Textures -------------------------------------------------------------------
 // One mip level converted for GL: ETC1 blocks or RGBA8 rows.
@@ -768,7 +773,7 @@ void prepareDraw(uint32_t firstVertex, uint32_t endVertex) {
 			const unsigned format = flags & 3, components = ((flags >> 2) & 3) + 1;
 			static const GLenum types[4] = {GL_BYTE, GL_UNSIGNED_BYTE, GL_SHORT, GL_FLOAT};
 			static const unsigned sizes[4] = {1, 1, 2, 4};
-			glEnableVertexAttribArray(reg);
+			if (!attribEnabled[reg]) { glEnableVertexAttribArray(reg); attribEnabled[reg] = true; }
 			glVertexAttribPointer(reg, GLint(components), types[format], GL_FALSE, GLsizei(stride), reinterpret_cast<const void*>(uintptr_t(offset)));
 			enabled[reg] = true;
 			offset += components * sizes[format];
@@ -776,7 +781,7 @@ void prepareDraw(uint32_t firstVertex, uint32_t endVertex) {
 	}
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	for (unsigned reg = 0; reg < 5; ++reg)
-		if (!enabled[reg]) { glDisableVertexAttribArray(reg); glVertexAttrib4f(reg, 0, 0, 0, 1); }
+		if (!enabled[reg] && attribEnabled[reg]) { glDisableVertexAttribArray(reg); glVertexAttrib4f(reg, 0, 0, 0, 1); attribEnabled[reg] = false; }
 	if (profile) stats.attributeUs += profileNow() - t3;
 }
 
@@ -824,13 +829,13 @@ void present(Target* top) {
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, top->color);
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
-	for (int i = 2; i < 5; ++i) glDisableVertexAttribArray(i);
-	glEnableVertexAttribArray(0); glEnableVertexAttribArray(1);
+	for (int i = 2; i < 5; ++i) { glDisableVertexAttribArray(i); attribEnabled[i] = false; }
+	glEnableVertexAttribArray(0); glEnableVertexAttribArray(1); attribEnabled[0] = attribEnabled[1] = true;
 	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, &quad[0][0]);
 	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16, &quad[0][2]);
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 	const uint64_t swapStart = sceKernelGetProcessTimeWide();
-	vglSwapBuffers(GL_FALSE);
+	vglSwapBuffers(vitaCommonDialog ? GL_TRUE : GL_FALSE);
 	stats.swapUs += sceKernelGetProcessTimeWide() - swapStart;
 	invalidateApplied();
 	state.targetDirty = true;

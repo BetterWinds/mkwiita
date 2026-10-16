@@ -705,6 +705,7 @@ struct RaceAudioLayer::Impl {
   if (c & cue::StarHit) startNewLimited(e, k, 0x110);   // CheckKartCollision 8056b0b8: SE_ITM_STAR_HIT
   // The driver model starts its trick animation (fn_1_18BE08 0x80697D34, local kart).
   if (c & cue::JumpAction) startLimited(e, k, sid::JumpAction);
+  if (c & cue::CoinGet) startLimited(e, k, 0x1f1);   // SE_CC_COIN_GET
   // A half-pipe trick (fn_1_64AAC 0x805AF9E8): the course crowd on DK Summit
   // (SE_CN_BDX_HPIPE_CHEER_L) and course 0x23 (SE_CB_SKT_JUMP_ACTION_CHEER, which
   // StartSoundLimited declines).

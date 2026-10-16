@@ -4,7 +4,7 @@
 #include <vector>
 #include <cstdint>
 namespace mkw {
-enum class UiPage {Title,MainMenu,Mode,Character,Vehicle,Drift,Cup,Course,Confirm,Race,Pause,QuitConfirm,Results,Error,Strap,License,EngineClass,VSMode,BattleMode,BattleCup,BattleStage,Ghost,Intro};
+enum class UiPage {Title,MainMenu,Mode,Character,Vehicle,Drift,Cup,Course,Confirm,Race,Pause,QuitConfirm,Results,Error,Strap,License,EngineClass,VSMode,BattleMode,BattleCup,BattleStage,Ghost,Intro,Rules};
 enum class UiAction {None,StartRace,RestartRace,ResumeRace,Exit};
 enum class UiMode {GrandPrix,TimeTrials,VS,Battle};
 enum class UiEngineClass {CC50,CC100,CC150,Mirror};
@@ -20,11 +20,28 @@ struct UiSelection {
  unsigned driver=0,vehicle=0,course=0;bool automatic=false;
  UiMode mode=UiMode::GrandPrix;UiEngineClass engineClass=UiEngineClass::CC150;
  unsigned license=0,battleStage=0;bool teams=false,coinRunners=false;
+ // VS and Battle rules (Pages::VSSettings / BattleSettings): CPU level (Easy,
+ // Normal, Hard), CPU vehicles (All, Karts, Bikes), course or stage order
+ // (Choose, Random, In Order), items (Balanced, Aggressive, Strategic, None),
+ // the VS race count and the battle wins (values of UiRaceCounts / UiBattleWins).
+ unsigned cpuLevel=1,cpuVehicles=0,courseOrder=0,itemMode=0,raceCount=4,battleWins=2;
+ // Time Trials: 0 race the course's ghost, 1 watch its replay, 2 alone.
+ unsigned ghost=2;
  // The retail unlocked engine-class page switches both 50cc/100cc entries
  // together between their restricted type and the combined kart/bike list.
  bool mixedEngineTypes=false;
  bool operator==(const UiSelection&)const=default;
 };
+// The rules' count values (tools/cook_menu_ui.py bakes a label for each).
+inline constexpr std::array<unsigned,10> UiRaceCounts{{1,2,3,4,5,6,7,8,16,32}};
+inline constexpr std::array<unsigned,5> UiBattleWins{{1,2,3,4,5}};
+// One rules row: its kind and option count (Count rows step through the counts).
+enum class UiRuleRow {Class,Cpu,Vehicles,Courses,Items,Count,Ok};
+struct UiRuleRowInfo {UiRuleRow row;unsigned options;};
+// VSSettingRadioBase/UpDownBase order; BattleSettingRadioBase drops Class and
+// offers three item settings.
+inline constexpr std::array<UiRuleRowInfo,7> UiVSRules{{{UiRuleRow::Class,4},{UiRuleRow::Cpu,3},{UiRuleRow::Vehicles,3},{UiRuleRow::Courses,3},{UiRuleRow::Items,4},{UiRuleRow::Count,1},{UiRuleRow::Ok,1}}};
+inline constexpr std::array<UiRuleRowInfo,6> UiBattleRules{{{UiRuleRow::Cpu,3},{UiRuleRow::Vehicles,3},{UiRuleRow::Courses,3},{UiRuleRow::Items,3},{UiRuleRow::Count,1},{UiRuleRow::Ok,1}}};
 struct UiCharacterInfo {const char* name;unsigned retailId,weight;};
 // The first 24 entries are the cooked retail race roster. Mii identity models
 // require the separate profile-rendering path before they can enter a race.
@@ -53,9 +70,18 @@ class MenuState {
 public:
  UiPage page=UiPage::Strap;UiSelection selection{};
  unsigned cursor=0,age=0,focusAge=0;bool unavailable=false;
+ // The choice is not unlocked for this license (the notice says "Locked").
+ bool locked=false;
+ // An empty license slot was chosen: main asks for its name, then creates it.
+ bool nameRequest=false;
+ // An "Unlocked!" notice over the page (a Progress unlockable, -1 none): A or B closes it.
+ int unlockNotice=-1;
  // Results is the retail VS end-of-race menu (VSRaceEnd): Next Race / Quit
  // Game, or only Next after the final race of a VS set (IsFinalRace).
  bool finalRace=false;
+ // The chosen course has a saved Time Trial ghost (kept current by main):
+ // its racer (UiCharacters index, vehicle choice) and time.
+ bool ghostAvailable=false;unsigned ghostDriver=0,ghostVehicle=0;uint32_t ghostMilliseconds=0;
  UiFocusState focus{};
  UiAction input(UiInput);
  void advance(unsigned ticks);
@@ -72,6 +98,12 @@ public:
  unsigned vehicleChoice(unsigned slot)const;
  unsigned vehicleSlot(unsigned choice)const;
  unsigned engineClassMovie(unsigned slot)const;
+ // Rules page: its rows for the chosen mode, and the focused row and option.
+ unsigned ruleRows()const;UiRuleRowInfo ruleRow(unsigned row)const;
+ unsigned ruleSlot(unsigned row,unsigned option)const;
+ void ruleCursor(unsigned& row,unsigned& option)const;
+ // The chosen option of a radio row (Class, CPU, Vehicles, Courses, Items).
+ unsigned ruleChoice(UiRuleRow row)const;
  // The race runtime starts races with all 24 retail drivers and all twelve
  // machines each. Other choices stay browsable, but accepting one reports
  // "Not available" on its own page rather than at the final confirmation.

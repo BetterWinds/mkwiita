@@ -6,6 +6,7 @@
 #include <mkw/item_box_uv.hpp>
 #include <mkw/bomb_blast.hpp>
 #include <mkw/race_balloon.hpp>
+#include <mkw/balloon_battle.hpp>
 #include <mkw/battle_hud_layout.hpp>
 #include <mkw/bullet_bill.hpp>
 #include <mkw/blooper.hpp>
@@ -509,6 +510,42 @@ void RaceHud::drawBattle(Renderer& renderer,float lift){
         scaled(BattleHudPopupSign,m.battleSigns[sign],80,60);
     }
 }
+void RaceHud::drawCoinPile(Renderer& renderer,const Model& coin,const Bounds& bounds,unsigned coins){
+    coins=std::min(coins,CoinPileColumn*CoinPileColumns);
+    if(!coins)return;
+    // Measured from the Wii's HUD: coins about 19.4 canvas units across, 3.8
+    // apart in a column, columns 18.4 apart centred over the two-digit count,
+    // the pile's foot on the count's top; seen about 20 degrees from edge-on.
+    constexpr float Diameter=19.4f,Step=3.8f,ColumnStep=18.4f,Tilt=.35f,Depth=50.f;
+    const Vec3 extent=bounds.maximum-bounds.minimum,centre=(bounds.maximum+bounds.minimum)*.5f;
+    const float e[3]={extent.x,extent.y,extent.z},c[3]={centre.x,centre.y,centre.z};
+    // The disc's axis is the model's thinnest; the other two span its face.
+    const unsigned n=e[0]<=e[1]&&e[0]<=e[2]?0:e[1]<=e[2]?1:2,a=(n+1)%3,b=(n+2)%3;
+    const float across=std::max(e[a],e[b]);if(across<=0)return;
+    const float unit=2.f*Depth*std::tan(renderer.fov()*3.14159265358979323846f/360.f)/display::Height; // world per canvas unit
+    const float scale=Diameter*unit/across;
+    // Camera space: local a to the right, the axis up and toward the viewer,
+    // b completing a right-handed basis (N x R).
+    const float ct=std::cos(Tilt),st=std::sin(Tilt);
+    const Vec3 axis[3]={{1,0,0},{0,st,-ct},{0,ct,st}}; // images of a, b, n
+    const auto& r=BattleHudPoints;
+    const float midX=r.x+.875f*r.h,footY=r.y-2.f;
+    for(unsigned i=0;i<coins;++i){
+        const unsigned column=i/CoinPileColumn,row=i%CoinPileColumn;
+        const float cx=midX+(float(column)-1.f)*ColumnStep,cy=footY-Diameter*.5f*st-float(row)*Step;
+        const Vec3 p{(cx-display::Width*.5f)*unit,(display::Height*.5f-cy)*unit,-Depth};
+        float m[3][3]{};
+        const unsigned local[3]={a,b,n};
+        for(unsigned k=0;k<3;++k){const Vec3& v=axis[k];m[0][local[k]]=v.x*scale;m[1][local[k]]=v.y*scale;m[2][local[k]]=v.z*scale;}
+        C3D_Mtx t;Mtx_Identity(&t);
+        const float pos[3]={p.x,p.y,p.z};
+        for(unsigned row3=0;row3<3;++row3){
+            t.r[row3].x=m[row3][0];t.r[row3].y=m[row3][1];t.r[row3].z=m[row3][2];
+            t.r[row3].w=pos[row3]-(m[row3][0]*c[0]+m[row3][1]*c[1]+m[row3][2]*c[2]);
+        }
+        renderer.drawCameraSpace(coin,t);
+    }
+}
 void RaceHud::drawBattleTotals(Renderer& renderer,unsigned red,unsigned blue,unsigned winner,unsigned tick){
     auto& m=*impl_;if(!m.battleReady)return;
     const float cx=display::CenterX-200.f;
@@ -599,8 +636,8 @@ void RaceHud::drawOverlay(Renderer& renderer,const RaceItems& items,unsigned sta
             const auto& n=BalloonNames[character];
             const float tw=n.width*BalloonFontScale[0]*Unit,th=n.height*BalloonFontScale[1]*Unit;
             const float right=ax+(BalloonText[0]+BalloonText[2]*.5f)*Unit,cy=ay-BalloonText[1]*Unit;
-            // Battle: names in the racer's team colour (chara_name_text_color_red/blue).
-            const uint32_t nameColor=!battle.active?0xffffffffu:b.shown%2?0x78a8ffffu:0xff7070ffu;
+            // Battle and Team VS: names in the racer's team colour (chara_name_text_color_red/blue).
+            const uint32_t nameColor=!teams?0xffffffffu:BalloonBattle::team(b.shown)?0x78a8ffffu:0xff7070ffu;
             renderer.drawScreenSpriteRegion(impl_->names[character],right-tw,cy-th*.5f,tw,th,0,0,n.u,n.v,b.alpha,nameColor);
         }
     }

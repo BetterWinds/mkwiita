@@ -198,13 +198,17 @@ void FlowDrawer::draw(const RaceResultsFlow& flow,FlowSink sink,void* context){
   }
   const unsigned rows=flow.rowCount();
   std::array<Placement,12> at{};
+  unsigned columnRows[2]{};
   for(unsigned i=0;i<rows;++i){
    const auto& c=FlowResultRows[i];
    if(award){
     // AwardItemWin's two columns (left 1st-6th, right 7th-12th), the rows
-    // scaled to fit side by side.
+    // scaled to fit side by side. Teams: the left team's column, then the
+    // other's, each from the top.
     constexpr float Scale=.68f,Column=208.f,Top=24.f,Step=36.f;
-    at[i]={(i<6?-Column:Column)+flow.slideOffset(c.delay),Top-float(i%6)*Step,Scale,Scale};
+    const unsigned column=flow.teamColumns()?(flow.row(i).team==flow.leftTeam()?0u:1u):(i<6?0u:1u);
+    const unsigned slot=std::min(columnRows[column]++,5u);
+    at[i]={(column?Column:-Column)+flow.slideOffset(c.delay),Top-float(slot)*Step,Scale,Scale};
    }else at[i]={c.x+flow.slideOffset(c.delay),c.y,c.sx,c.sy};
    std::snprintf(numbers[i][0],sizeof numbers[i][0],"+%u",unsigned(flow.row(i).gain));
    std::snprintf(numbers[i][1],sizeof numbers[i][1],"%d",flow.count(i).shown);
@@ -228,7 +232,8 @@ void FlowDrawer::draw(const RaceResultsFlow& flow,FlowSink sink,void* context){
       }else pictureQuad(m.batch,pane,pose,material,at[i]);
      }else{
       const char* text=nullptr;const char* name=pane.name;
-      if(!std::strcmp(name,"position"))text=FlowPositionText[std::min(i,11u)];
+      // Team standings have no places, only the two teams' columns.
+      if(!std::strcmp(name,"position"))text=award&&flow.teamColumns()?nullptr:FlowPositionText[std::min(i,11u)];
       else if(!std::strcmp(name,"player_name"))text=FlowCharacterNames[std::min<unsigned>(row.character,23)];
       else if(!std::strcmp(name,"get_point"))text=flow.totals()?nullptr:numbers[i][0];
       else if(!std::strcmp(name,"total_score"))text=numbers[i][1];

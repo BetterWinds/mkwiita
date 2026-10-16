@@ -58,8 +58,12 @@ public:
  // GPVSLeaderboardUpdate::FillRows: rows in finishing order.
  void fill(const RaceResultEntry* byPosition,unsigned count,bool finalRace);
  // The award ceremony's standings: the totals page at once (rows' previous
- // are the set totals), held until the caller closes it.
- void showTotals(const RaceResultEntry* rows,unsigned count);
+ // are the set totals), held until the caller closes it. leftTeam (0 red,
+ // 1 blue): Team VS and Battle, a column per team, this one on the left.
+ void showTotals(const RaceResultEntry* rows,unsigned count,int leftTeam=-1);
+ // The standings in team columns: rows grouped left team first, each by points.
+ bool teamColumns()const{return leftTeam_>=0;}
+ int leftTeam()const{return leftTeam_;}
 
  RaceFlowPhase phase()const{return phase_;}
  bool active()const{return phase_!=RaceFlowPhase::Racing;}
@@ -101,7 +105,7 @@ private:
  void enter(RaceFlowPhase phase){phase_=phase;pageFrame_=0;}
  void sortTotals();
  RaceFlowPhase phase_=RaceFlowPhase::Racing;
- int finishFrame_=-1;unsigned pageFrame_=0,timeout_=0,count_=0,cursor_=0;int chosen_=-1;bool final_=false,filled_=false;
+ int finishFrame_=-1,leftTeam_=-1;unsigned pageFrame_=0,timeout_=0,count_=0,cursor_=0;int chosen_=-1;bool final_=false,filled_=false;
  std::array<RaceResultEntry,12> rows_{};
  std::array<RaceResultCount,12> counts_{};
 };

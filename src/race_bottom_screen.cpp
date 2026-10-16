@@ -61,7 +61,9 @@ struct RaceBottomScreen::Impl {
     Texture miniMap;bool miniBuilt=false;
     float miniX0=0,miniZ0=0,miniScale=1,miniOx=0,miniOy=0,miniW=0,miniH=0;
     // The map, 12 faces and the player's rim, the 10 timer panes, the start line.
-    Renderer::MaterialQuad miniQuad[2][2+12+10+1]{};
+    // The map, the searchlight, 12 faces each with a rim (battle teams), the 10
+    // timer panes, then the start line (MiniStartQuad).
+    Renderer::MaterialQuad miniQuad[2][1+1+24+10+1+BottomView::MaxCoins]{};
     // The Wii-style map (the default; quality.txt map=0 turns it off): the
     // course's map model baked from above (tools/cook_race_minimap.py) and the start strip.
     bool wiiMap=false,arena=false;Texture wiiMapTexture,wiiStart;
@@ -506,7 +508,7 @@ void RaceBottomScreen::drawMini(Renderer& renderer,const BottomView& view){
         if(len>.5f&&m.wiiStart.ready){
             const float ux=dx/len,uy=dy/len,half=std::max(len*.9f,6.f),thick=std::max(3.5f,half*2.f*6.f/22.f)*.5f;
             const float mx=(ax+bx)*.5f,my=(ay+by)*.5f,nx=-uy*thick,ny=ux*thick;
-            auto& q=quads[2+12+10];set(q,0,0,0,0,0,0,22.f/m.wiiStart.gpu.width,4.f/m.wiiStart.gpu.height,0xffffffffu);
+            auto& q=quads[1+1+24+10+BottomView::MaxCoins];set(q,0,0,0,0,0,0,22.f/m.wiiStart.gpu.width,4.f/m.wiiStart.gpu.height,0xffffffffu);
             q.x[0]=mx-ux*half-nx;q.y[0]=my-uy*half-ny;q.x[1]=mx+ux*half-nx;q.y[1]=my+uy*half-ny;
             q.x[2]=mx-ux*half+nx;q.y[2]=my-uy*half+ny;q.x[3]=mx+ux*half+nx;q.y[3]=my+uy*half+ny;
             if(m.mirror)flipQuad(q,cx,true);
@@ -557,11 +559,35 @@ void RaceBottomScreen::drawMini(Renderer& renderer,const BottomView& view){
             const float dx[4]={-h,h,-h,h},dy[4]={-h,-h,h,h};
             for(unsigned k=0;k<4;++k){q.x[k]=x+dx[k]*c-dy[k]*s;q.y[k]=y+dx[k]*s+dy[k]*c;}
         };
-        if(rim)quad(size*.6f,rim);
+        if(rim)quad(size*(r.team<2?.64f:.6f),rim);
         quad(size*.5f,0xffffffffu);
     };
+    // Coin Runners: every coin on the ground as a small yellow dot, under the faces.
+    for(unsigned i=0;i<std::min(view.coins,BottomView::MaxCoins);++i){
+        float x=m.miniOx+pad+(view.coin[i][0]-m.miniX0)*m.miniScale;const float y=m.miniOy+pad+(view.coin[i][1]-m.miniZ0)*m.miniScale;
+        if(m.mirror)x=2*miniAxis-x;
+        const auto& w=RaceMapWhite;constexpr float H=1.5f;
+        set(quads[count++],x-H,y-H,x+H,y+H,(w.x+1)/aw,(w.y+1)/ah,(w.x+w.w-1)/aw,(w.y+w.h-1)/ah,0xffd820ffu);
+    }
     auto rim=[](const BottomRacer& r,bool local){constexpr uint32_t Team[2]={0xe82828ffu,0x2870ffffu};return r.team<2?Team[r.team]:local?0x000000ffu:0u;};
     for(unsigned i=0;i<n;++i)face(*order[i],MiniOtherFace,rim(*order[i],false));
+    // The searchlight under the player's face, pointing along the kart
+    // (CtrlRace2DMapCharacter's map rotation), its apex on the face. Its size
+    // keeps the lower screen's light-to-face proportions.
+    if(local){
+        float hx=view.headingX,hy=view.headingZ;const float l=std::sqrt(hx*hx+hy*hy);
+        if(l>1e-4f){
+            hx/=l;hy/=l;
+            float x=m.miniOx+pad+(local->x-m.miniX0)*m.miniScale;const float y=m.miniOy+pad+(local->z-m.miniZ0)*m.miniScale;
+            if(m.mirror){x=2*miniAxis-x;hx=-hx;}
+            const float px=-hy,py=hx,lh=MiniFace*LightH/(FaceUnits*LocalScale*Unit),w=MiniFace*LightW/(FaceUnits*LocalScale*Unit)*.5f;
+            const float tx=x+hx*lh,ty=y+hy*lh;
+            const auto& r=RaceMapSearchlight;
+            auto& q=quads[count++];set(q,0,0,0,0,r.x/aw,r.y/ah,(r.x+r.w)/aw,(r.y+r.h)/ah,LightColor);
+            const float cxs[4]={tx-px*w,tx+px*w,x-px*w,x+px*w},cys[4]={ty-py*w,ty+py*w,y-py*w,y+py*w};
+            for(unsigned k=0;k<4;++k){q.x[k]=cxs[k];q.y[k]=cys[k];}
+        }
+    }
     if(local)face(*local,MiniFace,rim(*local,true));
     }
     // CtrlRaceTime at the top right, the Wii's single-player place

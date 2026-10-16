@@ -15,6 +15,12 @@ from menu_layout import render_layout,controllers,controller_alphas,controller_a
 from menu_movies import extract_movies,ThpMovie
 OUT=ROOT/'sd-card/3ds/mkw-3ds'
 UI=ROOT/'assets/menu-ui/MenuSingle'
+# The rules page's race and battle-win counts (UiRaceCounts/UiBattleWins in
+# include/mkw/menu_ui.hpp): each value's "Races: N"/"Wins: N" label is baked.
+UI_RACE_COUNTS=(1,2,3,4,5,6,7,8,16,32)
+UI_BATTLE_WINS=(1,2,3,4,5)
+# Characters a license name may use (main.cpp's keyboard keeps only these).
+LICENSE_NAME_CHARS="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.-!?'"
 records={}; evidence={}; panel_records={}; pane_records={}; node_records={}; movie_records=[]; glow_records=[]; focus_records=[]; panel_layer_records={}; border_records=[]; border_slices=[]; runtime_palette=[]
 def source(p):
  key=p.relative_to(ROOT).as_posix()
@@ -379,8 +385,18 @@ def main():
   ('ghost_arrow_left','MenuSingle/button/blyt/common_w016_yajirushi_left.brlyt',('text',)),
   ('ghost_arrow_right','MenuSingle/button/blyt/common_w021_yajirushi_right.brlyt',('text',)),
   ('confirm','MenuSingle/button/blyt/common_w109_go_button.brlyt',('text',)),
+  # VS and Battle rules (VSSettingRadioBase/UpDownBase rows, the race-count
+  # value and its arrows; VSSetting's OK is the shared common_w004 button).
+  ('rule_row','MenuSingle/control/blyt/common_w023_rule_menu.brlyt',('text',)),
+  ('rule_value','MenuSingle/control/blyt/common_w048_rule_rap.brlyt',('text',)),
+  ('rule_left','MenuSingle/control/blyt/common_w134_rule_rap_yaji_l.brlyt',('text',)),
+  ('rule_right','MenuSingle/control/blyt/common_w135_rule_rap_yaji_r.brlyt',('text',)),
  ]
  for name,resource,exclude in specs:bake_panel(name,resource,exclude=exclude)
+ # VSSettingRadioOption: its Choice group shows the chosen option (ChoiceOn: the
+ # red checker and active_text) apart from the others (ChoiceOff).
+ for name,choice in [('rule_option','ChoiceOff'),('rule_option_on','ChoiceOn')]:
+  bake_panel(name,'MenuSingle/control/blyt/common_w024_rule_icon.brlyt',exclude=('text',),group_states={'Choice':choice})
  # PressStart is a real layout/control, with a separate expanding light
  # text pane and a squash/stretch confirmation animation. The fade group is
  # evaluated live; keep an opaque reference pose for the text textures.
@@ -406,6 +422,7 @@ def main():
  bake_panel('ghost_page','MenuSingle/control/blyt/common_w104_page_number.brlyt',states=('',),bounds=(-150,-50,150,50),exclude=('text',))
  _,_,pane_records['header_text']=render_layout(UI/'bg/blyt/obi_top_text.brlyt',source,bounds=(-304,-228,304,228))
  _,_,pane_records['class_switch']=render_layout(UI/'control/blyt/common_w105_close_text.brlyt',source,bounds=(-304,-228,304,228))
+ _,_,pane_records['rule_value_text']=render_layout(UI/'control/blyt/common_w048_rule_rap_text.brlyt',source,bounds=(-304,-228,304,228))
  for name,resource in [('character_name','MenuSingle/control/blyt/common_w027_chara_name.brlyt'),('vehicle_name','MenuSingle/control/blyt/common_w028_machine_name.brlyt'),('vehicle_ability','MenuSingle/control/blyt/common_w099_machine_ability.brlyt'),('course_movie_frame','MenuSingle/control/blyt/common_w089_course_big_movie.brlyt')]:
   bake_panel(name,resource,states=('',),exclude=('text','ability_graph') if name=='vehicle_ability' else ('text',))
  graph=UI/'control/blyt/common_w099_machine_ability.brlyt'
@@ -455,6 +472,12 @@ def main():
  menu_messages=message_sources['assets/menu-ui/MenuSingle_U/message/Menu.bmg']
  help_ids={'UiHelpMain':[0x7e4,0x7e5,0x7e8,0x7ea],'UiHelpMainMulti':[0x7e5,0x7e6,0x7e7],'UiHelpWfc':[0x7e8,0x7e9],'UiHelpMode':[0xbea,0xbeb,0xbec,0xbee],'UiHelpEngineClasses':[0xbf4,0xbf5,0xbf6,0xbf7],'UiHelpDrift':[0xd16,0xd17],'UiHelpVSMode':[0xd8c,0xd8b]}
  help_ids['UiHelpEngineClassesAllKartBike']=[0xbf8,0xbf9,0xbf6,0xbf7]
+ # VS/Battle rules: one line per option (All, Karts, Bikes order for vehicles),
+ # the race/win count, OK (race, battle) and the page (race, battle).
+ help_ids.update({'UiHelpRulesClass':[0xd57,0xd58,0xd59,0xd5a],'UiHelpRulesCpu':[0xd61,0xd62,0xd63],
+                  'UiHelpRulesVehicles':[0xd6c,0xd6a,0xd6b],'UiHelpRulesCourses':[0xd74,0xd75,0xd76],
+                  'UiHelpRulesStages':[0xd77,0xd78,0xd79],'UiHelpRulesItems':[0xd9d,0xd9e,0xd9f,0xda0],
+                  'UiHelpRulesCount':[0xd89,0xd8a],'UiHelpRulesOk':[0xd90,0xd91],'UiHelpRules':[0xd92,0xd93]})
  help_text={name:[menu_messages[i] for i in ids] for name,ids in help_ids.items()}
  multiline_specs={menu_messages[i]:.7 for i in range(0x8fd,0x901)}
  multiline_specs.update({menu_messages[i]:.5 for i in range(0xbbe,0xbc4)})
@@ -470,7 +493,7 @@ def main():
  labels+=course_names+[c['name'] for c in garage['choices']]+list('0123456789:.-/')
  labels+=[text for values in help_text.values() for text in values]
  labels+=re.findall(r'\"([^\"]+)\"',(ROOT/'include/mkw/menu_ui.hpp').read_text())
- labels+=['Characters','Vehicles','Engine Classes','Cups','Courses','Select License','New','License','License 1','License 2','License 3','License 4','50cc','100cc','150cc','Mirror','Solo Race','Team Race','Balloon Battle','Coin Runners','Wii Stages','Retro Stages','Select Stage','Speed','Weight','Acceleration','Handling','Drift','Off-Road','Mini-Turbo','Karts Only','Bikes Only','Karts and Bikes','Press the A Button','OK','Back','Options','Mario Kart Channel','Grand Prix Race','Time Trial','VS Settings','Battle Settings','Unsupported race configuration','Create a license','Attach the Wii Remote wrist strap.','Press A to continue.','Please use the wrist strap.','A: Select','1 Player','2 Players','3 Players','4 Players','Race This Ghost','Watch the Replay','Solo Time Trials','Player','Players','Booster Seat','Flame Runner','Jet Bubble']
+ labels+=['Characters','Vehicles','Engine Classes','Cups','Courses','Select License','New','License','License 1','License 2','License 3','License 4','50cc','100cc','150cc','Mirror','Solo Race','Team Race','Balloon Battle','Coin Runners','Wii Stages','Retro Stages','Select Stage','Speed','Weight','Acceleration','Handling','Drift','Off-Road','Mini-Turbo','Karts Only','Bikes Only','Karts and Bikes','Press the A Button','OK','Back','Options','Mario Kart Channel','Grand Prix Race','Time Trial','VS Settings','Battle Settings','Unsupported race configuration','Create a license','Attach the Wii Remote wrist strap.','Press A to continue.','Please use the wrist strap.','A: Select','1 Player','2 Players','3 Players','4 Players','Race This Ghost','Watch the Replay','Solo Time Trials','Player','Players','Booster Seat','Flame Runner','Jet Bubble','Locked','Unlocked!']
  labels=[x for x in dict.fromkeys(labels) if x and not x.startswith('mkw/')]
  # Preserve each source text pane's TEV mapping. Bake only strings used by
  # that control, with identical images sharing the same native texture.
@@ -479,8 +502,14 @@ def main():
  character_labels=header_strings('UiCharacters{{','}};')
  vehicle_labels=header_strings('UiVehicleNames[3][12]=','};')
  battle_labels=header_strings('UiBattleStageNames[]=',';')
+ # Rules labels: Menu.bmg's row titles and options; counts compose "Races: "
+ # (0xd7b) and "Wins: " (0xd84) with the number, as the UpDown value does.
+ rule_rows=[menu_messages[i] for i in (0xd52,0xd5c,0xd66,0xd70,0xd4e,0xd98,0xd7a,0xd7c)]
+ rule_options=[menu_messages[i] for i in (0xd53,0xd54,0xd55,0xd56,0xd5d,0xd5e,0xd5f,0xd69,0xd67,0xd68,0xd71,0xd72,0xd73,0xd99,0xd9a,0xd9b,0xd9c)]
+ rule_counts=[menu_messages[0xd7b]+str(n) for n in UI_RACE_COUNTS]+[menu_messages[0xd84]+str(n) for n in UI_BATTLE_WINS]
  roles={
-  'header_text':['Main Menu','Select License','Characters','Vehicles','Engine Classes','Cups','Courses','Drift','Grand Prix','Time Trials','Single Player','VS','Battle','Stages','Ghosts','Wii Stages','Retro Stages','Select Stage','Start Race'],
+  'header_text':['Main Menu','Select License','Characters','Vehicles','Engine Classes','Cups','Courses','Drift','Grand Prix','Time Trials','Single Player','VS','Battle','Stages','Ghosts','Wii Stages','Retro Stages','Select Stage','Start Race','Rules'],
+  'rule_row':rule_rows,'rule_option':rule_options,'rule_option_on':rule_options,'rule_value_text':rule_counts,
   'footer_help':[v for vv in help_text.values() for v in vv],
   'main':['Single Player','Multiplayer','Nintendo WFC','Mario Kart Channel'],
   'main_button':['1','Player','1\nPlayer'],'main_multi':['2','3','4','Players','2\nPlayers','3\nPlayers','4\nPlayers'],'main_wifi':['1','2','Player','Players','1\nPlayer','2\nPlayers'],
@@ -489,18 +518,20 @@ def main():
   'license':['NEW','New','License','License 1','License 2','License 3','License 4','50cc','100cc','150cc','Mirror'],
   'option':['Settings'],'license_edit':['License Settings'],
   'drift_help':['Help'],
-  'license_top_empty':['NEW'],'license_bottom_empty':['NEW'],
+  # License names are set per character (Composer::chars), from the keyboard's allowed set.
+  'license_top_empty':['NEW']+list(LICENSE_NAME_CHARS),'license_bottom_empty':['NEW']+list(LICENSE_NAME_CHARS),
   'character_name':character_labels,'vehicle_name':vehicle_labels,
   'vehicle_ability':['Speed','Weight','Acceleration','Handling','Drift','Off-Road','Mini-Turbo'],
   'drift':['Automatic','Manual'],'cup':['Mushroom Cup','Flower Cup','Star Cup','Special Cup','Shell Cup','Banana Cup','Leaf Cup','Lightning Cup','Wii Stages','Retro Stages'], 'character':[], 'vehicle':[],
   'cup_course':course_names,
   'battle_course':battle_labels,
   'ghost':['Race This Ghost','Watch the Replay','Solo Time Trials'],
-  'ghost_info':course_names+['There are no ghosts for this course.'],
+  # The ghost card's time is set per character (Composer::chars): 1'23"456.
+  'ghost_info':course_names+character_labels+list('0123456789\'"'),
   'course':course_names+battle_labels,'vs':['Solo Race','Team Race'],'battle':['Balloon Battle','Coin Runners'],
   'confirm':['OK','Start Race','Race This Ghost','Watch the Replay','Solo Time Trials'],
   'back':['←Back','Back'],
-  'button':['Race This Ghost','Watch the Replay','Solo Time Trials','Yes','No','Continue','Restart','Quit','Race Again','Change Course','Change Character','Main Menu','Not available']}
+  'button':['Race This Ghost','Watch the Replay','Solo Time Trials','Yes','No','Continue','Restart','Quit','Race Again','Change Course','Change Character','Main Menu','Not available','OK']}
  for required in roles.values():
   for label in required:
    if label not in labels:labels.append(label)

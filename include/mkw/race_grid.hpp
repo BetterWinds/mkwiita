@@ -2,6 +2,7 @@
 #include <mkw/math.hpp>
 #include <mkw/cpu_speed.hpp>
 #include <mkw/cpu_ai.hpp>
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -56,11 +57,42 @@ public:
     // the racer index. Not a permutation of 0..count-1: ignored.
     void setStartOrder(const std::array<uint8_t,Capacity>& slots){startSlots_=slots;}
     void clearStartOrder(){startSlots_.fill(0xff);}
+    // VS/Battle rules for the next configure()/reset(): CPU level 0 Easy,
+    // 1 Normal, 2 Hard; CPU vehicles -1 the standard kart (Grand Prix), 0 All,
+    // 1 karts only, 2 bikes only; seed picks each CPU's machine.
+    void setCpuRules(unsigned level,int vehicles,uint32_t seed){cpuLevel_=std::min(level,2u);cpuVehicles_=vehicles;cpuSeed_=seed;}
+    // Time Trial ghost: racer 1 takes this garage choice (its inputs come from
+    // the recorded run, not the AI); -1 for none.
+    void setGhostChoice(int choice){ghostChoice_=choice;}
+    bool ghost(unsigned racer) const{return ghostChoice_>=0&&racer==1;}
+    // Battle arenas, set before every beforeStep(): what battle CPUs go for.
+    // Pointers are borrowed for that call only. holding/safe are racer masks
+    // (an item in hand or rolling; just lost a balloon and can't lose another).
+    struct BattleGoals {const Vec3* boxes=nullptr;unsigned boxCount=0;const Vec3* coins=nullptr;unsigned coinCount=0;uint16_t holding=0,safe=0;bool coinRunners=false;std::array<uint16_t,Capacity> scores{};};
+    void setBattleGoals(const BattleGoals& goals){battleGoals_=goals;}
     CpuAi& ai(){return ai_;}
 private:
     void forwardBumps();
     void battleDrive(unsigned racer,bool racing);
-    struct Driver {CpuSpeedState speedPolicy{};float nativeSpeed=70,desiredSpeed=70;unsigned segment=EnemyRoute::Invalid,bulletSegment=EnemyRoute::Invalid,wander=EnemyRoute::Invalid;int target=-1;unsigned stuck=0,reverse=0,recoveries=0,routeTicks=0;Vec3 last{};float bulletTurn=.03f;bool respawning=false,bullet=false;};
+    // Battle arenas: shortest paths over the ENPT graph, driven both ways.
+    // hop_[goal*n+from] is the neighbour of from on the way to goal and
+    // navDist_ the path length; a spot is the closest point on any link.
+    void buildBattleNav();
+    struct NavSpot {unsigned a=EnemyRoute::Invalid,b=EnemyRoute::Invalid;Vec3 at{};};
+    NavSpot navSpot(Vec3 p,unsigned avoid=EnemyRoute::Invalid) const;
+    unsigned navHop(unsigned from,unsigned goal) const{return hop_[std::size_t(goal)*route_.size()+from];}
+    float navDist(unsigned from,unsigned goal) const{return navDist_[std::size_t(goal)*route_.size()+from];}
+    struct Driver {CpuSpeedState speedPolicy{};float nativeSpeed=70,desiredSpeed=70;unsigned segment=EnemyRoute::Invalid,bulletSegment=EnemyRoute::Invalid,wander=EnemyRoute::Invalid;int target=-1;unsigned stuck=0,reverse=0,recoveries=0,routeTicks=0;Vec3 last{};float bulletTurn=.03f;bool respawning=false,bullet=false;
+        // Battle progress checks (where the window started, its ticks against
+        // a wall) and what a failed approach rules out: during a detour the
+        // graph path only, avoiding badNode; for ignoreTicks the goal at
+        // ignoreAt or the enemy ignoreTarget.
+        Vec3 anchor{};unsigned window=0,wallTicks=0,stuckWindows=0,detour=0,ignoreTicks=0,badNode=EnemyRoute::Invalid;Vec3 ignoreAt{};int ignoreTarget=-1;
+        // The committed path: the next node, the node at the goal's lane, and
+        // past it (final) straight at the goal. Re-planned only when the goal
+        // leaves that lane or an approach fails: a fresh pick every tick
+        // flips between lanes and leaves the kart dithering.
+        unsigned navNode=EnemyRoute::Invalid,navLast=EnemyRoute::Invalid;bool navFinal=false;};
     EnemyRoute route_,bulletRoute_;
     CpuAi ai_;
     std::array<Driver,Capacity> drivers_{};
@@ -68,6 +100,8 @@ private:
     std::array<bool,Capacity> finished_{};
     CpuSpeedParam speedParam_{};bool speedParamReady_=false;float lapDistance_=0;
     unsigned count_=1;bool battleArena_=false;
+    unsigned cpuLevel_=1;int cpuVehicles_=-1;uint32_t cpuSeed_=0;int ghostChoice_=-1;
+    BattleGoals battleGoals_{};std::vector<uint16_t> hop_;std::vector<float> navDist_;
     std::array<uint8_t,Capacity> startSlots_{0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff};
 };
 }

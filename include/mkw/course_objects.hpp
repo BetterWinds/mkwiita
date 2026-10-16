@@ -23,6 +23,8 @@ public:
     Vec3 coinPosition(unsigned coin) const;
     bool coinAvailable(unsigned coin,unsigned tick) const;
     void collectCoin(unsigned coin,unsigned tick);
+    // The arena coin's model and its bounds (the Coin Runners HUD pile), or null.
+    const Model* coinModel(Bounds* bounds=nullptr) const;
     // Records this frame's sky and object draws (poses, skinning, materials) on
     // the job worker; call after Renderer::begin with the same tick and camera
     // as drawSky/draw, which then replay them in order. Without it they record

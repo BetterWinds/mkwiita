@@ -29,6 +29,7 @@ int backgroundFor(const MenuState& state) {
     case UiPage::EngineClass:return 0;
     case UiPage::VSMode:return 2;
     case UiPage::BattleMode:return 3;
+    case UiPage::Rules:return int(state.selection.mode);
     case UiPage::Character:case UiPage::Vehicle:case UiPage::Drift:
     case UiPage::Cup:case UiPage::Course:case UiPage::BattleCup:
     case UiPage::BattleStage:case UiPage::Ghost:case UiPage::Confirm:return int(state.selection.mode);

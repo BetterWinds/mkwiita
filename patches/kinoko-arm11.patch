@@ -93,7 +93,7 @@ index f35456b..a66f16f 100644
      ObjectCollisionConvexHull *m_hull;
      Kart::KartObject *m_kartObject;
 diff --git a/source/game/field/ObjectDirector.cc b/source/game/field/ObjectDirector.cc
-index edcbbda..03df1ab 100644
+index edcbbda..f8b4ece 100644
 --- a/source/game/field/ObjectDirector.cc
 +++ b/source/game/field/ObjectDirector.cc
 @@ -2,6 +2,7 @@
@@ -104,7 +104,18 @@ index edcbbda..03df1ab 100644
  #include "game/field/obj/ObjectRegistry.hh"
  
  #include "game/kart/KartObject.hh"
-@@ -65,6 +66,59 @@ void ObjectDirector::addManagedObject(ObjectCollidable *obj) {
+@@ -59,12 +60,70 @@ void ObjectDirector::addObjectNoImpl(ObjectBase *obj) {
+     m_objects.push_back(obj);
+ }
+ 
++void ObjectDirector::addObjectCalc(ObjectBase *obj) {
++    m_calcObjects.push_back(obj);
++    m_objects.push_back(obj);
++}
++
+ /// @addr{0x806C4ED4}
+ void ObjectDirector::addManagedObject(ObjectCollidable *obj) {
+     m_managedObjects.push_back(obj);
  }
  
  /// @addr{0x8082AB04}
@@ -164,7 +175,7 @@ index edcbbda..03df1ab 100644
  size_t ObjectDirector::checkKartObjectCollision(Kart::KartObject *kartObj,
          ObjectCollisionConvexHull *convexHull) {
      size_t count = 0;
-@@ -80,11 +134,12 @@ size_t ObjectDirector::checkKartObjectCollision(Kart::KartObject *kartObj,
+@@ -80,11 +139,12 @@ size_t ObjectDirector::checkKartObjectCollision(Kart::KartObject *kartObj,
              continue;
          }
  
@@ -181,7 +192,7 @@ index edcbbda..03df1ab 100644
  
          // The object might change the reaction states
          obj->processKartReactions(kartObj, reactionOnKart, reactionOnObj);
-@@ -147,7 +202,8 @@ void ObjectDirector::DestroyInstance() {
+@@ -147,7 +207,8 @@ void ObjectDirector::DestroyInstance() {
  /// @addr{0x8082A38C}
  ObjectDirector::ObjectDirector()
      : m_flowTable("ObjFlow.bin"), m_hitTableKart("GeoHitTableKart.bin"),
@@ -191,7 +202,7 @@ index edcbbda..03df1ab 100644
        m_calcObjects(MAX_UNIT_COUNT), m_collisionObjects(MAX_UNIT_COUNT), m_psea(nullptr),
        m_managedObjects(MAX_MANAGED_OBJECTS) {}
  
-@@ -173,6 +229,12 @@ void ObjectDirector::createObjects() {
+@@ -173,6 +234,12 @@ void ObjectDirector::createObjects() {
      bool rGV2 = course == Course::SNES_Ghost_Valley_2;
      bool sun = false;
  
@@ -204,7 +215,7 @@ index edcbbda..03df1ab 100644
      // The max pitch of the Chain Chomp only needs to be set once,
      // so we set it here instead of in the Chain Chomp constructor.
      s_wanwanMaxPitch = course == Course::GCN_Mario_Circuit ? -20.0f : -30.0f;
-@@ -191,6 +253,11 @@ void ObjectDirector::createObjects() {
+@@ -191,6 +258,11 @@ void ObjectDirector::createObjects() {
              continue;
          }
  
@@ -216,7 +227,7 @@ index edcbbda..03df1ab 100644
          // rGV2's blocks are created outside of the factory function
          if (rGV2) {
              switch (static_cast<ObjectId>(pObj->id())) {
-@@ -254,6 +321,8 @@ ObjectBase *ObjectDirector::createObject(const System::MapdataGeoObj &params) {
+@@ -254,6 +326,8 @@ ObjectBase *ObjectDirector::createObject(const System::MapdataGeoObj &params) {
          return EGG::egg_new<ObjectHeyhoShip>(params);
      case ObjectId::KartTruck:
      case ObjectId::CarBody:
@@ -225,11 +236,35 @@ index edcbbda..03df1ab 100644
          return EGG::egg_new<ObjectCarTGE>(params);
      case ObjectId::KoopaBall:
          return EGG::egg_new<ObjectKoopaBall>(params);
+@@ -350,6 +424,17 @@ ObjectBase *ObjectDirector::createObject(const System::MapdataGeoObj &params) {
+         return EGG::egg_new<ObjectTwistedWay>(params);
+     case ObjectId::TownBridge:
+         return EGG::egg_new<ObjectTownBridge>(params);
++    // Port: battle arena objects (retail factory, USA 0x8080E300).
++    case ObjectId::VeniceSaku:
++        return EGG::egg_new<ObjectVeniceSaku>(params);
++    case ObjectId::VeniceHasi:
++        return EGG::egg_new<ObjectVeniceHasi>(params);
++    case ObjectId::CasinoRoulette:
++        return EGG::egg_new<ObjectCasinoRoulette>(params);
++    case ObjectId::Quicksand:
++        return EGG::egg_new<ObjectQuicksand>(params);
++    case ObjectId::BBlock:
++        return EGG::egg_new<ObjectVolcanoPiece>(params);
+     case ObjectId::DKShip64:
+         return EGG::egg_new<ObjectShip64>(params);
+     case ObjectId::Turibashi:
 diff --git a/source/game/field/ObjectDirector.hh b/source/game/field/ObjectDirector.hh
-index 9634abd..7f86310 100644
+index 9634abd..e2a3c58 100644
 --- a/source/game/field/ObjectDirector.hh
 +++ b/source/game/field/ObjectDirector.hh
-@@ -34,11 +34,19 @@ public:
+@@ -30,15 +30,25 @@ public:
+     void calc();
+     void addObject(ObjectCollidable *obj);
+     void addObjectNoImpl(ObjectBase *obj);
++    /// Port: a collision-less object that still needs calc() (Chain Chomp Wheel's turn).
++    void addObjectCalc(ObjectBase *obj);
+     void addManagedObject(ObjectCollidable *obj);
  
      size_t checkKartObjectCollision(Kart::KartObject *kartObj,
              ObjectCollisionConvexHull *convexHull);
@@ -249,7 +284,7 @@ index 9634abd..7f86310 100644
      [[nodiscard]] const ObjectHitTable &hitTableKart() const {
          return m_hitTableKart;
      }
-@@ -101,6 +109,9 @@ private:
+@@ -101,6 +111,9 @@ private:
      ObjectFlowTable m_flowTable;
      ObjectHitTable m_hitTableKart;
      ObjectHitTable m_hitTableKartObject;
@@ -1195,6 +1230,108 @@ index 3bf29e5..1d8af81 100644
      static constexpr std::array<StateManagerEntry, 3> STATE_ENTRIES = {{
              {StateEntry<ObjectCarTGE, &ObjectCarTGE::enterStateStub, &ObjectCarTGE::calcStateStub>(
                      0)},
+diff --git a/source/game/field/obj/ObjectCasinoRoulette.cc b/source/game/field/obj/ObjectCasinoRoulette.cc
+new file mode 100644
+index 0000000..8597ec1
+--- /dev/null
++++ b/source/game/field/obj/ObjectCasinoRoulette.cc
+@@ -0,0 +1,50 @@
++#include "ObjectCasinoRoulette.hh"
++
++#include "game/field/ObjectDirector.hh"
++#include "game/system/RaceManager.hh"
++
++namespace Kinoko::Field {
++
++ObjectCasinoRoulette *ObjectCasinoRoulette::s_instance = nullptr;
++
++/// @addr{0x808770C0} (USA)
++ObjectCasinoRoulette::ObjectCasinoRoulette(const System::MapdataGeoObj &params)
++    : ObjectBase(params), m_initialRot(rot()) {
++    s_instance = this;
++}
++
++ObjectCasinoRoulette::~ObjectCasinoRoulette() {
++    if (s_instance == this) {
++        s_instance = nullptr;
++    }
++}
++
++void ObjectCasinoRoulette::load() {
++    ObjectDirector::Instance()->addObjectCalc(this);
++}
++
++f32 ObjectCasinoRoulette::angle(s32 t) const {
++    return static_cast<f32>(t) * SPEED;
++}
++
++/// @addr{0x80877694} (USA): the turn is a rotation about Y by timer * speed.
++void ObjectCasinoRoulette::calc() {
++    s32 t = static_cast<s32>(System::RaceManager::Instance()->timer());
++    EGG::Matrix34f mat;
++    mat.makeRT(EGG::Vector3f(m_initialRot.x, m_initialRot.y + angle(t), m_initialRot.z), pos());
++    setTransform(mat);
++}
++
++EGG::Vector3f ObjectCasinoRoulette::RoadVelocity(const EGG::Vector3f &p) {
++    if (!s_instance) {
++        return EGG::Vector3f::zero;
++    }
++
++    // One frame of the turn about the roulette's centre (Matrix34f::makeR's convention).
++    const EGG::Vector3f &c = s_instance->pos();
++    const f32 s = EGG::Mathf::sin(SPEED), co = EGG::Mathf::cos(SPEED);
++    const f32 x = p.x - c.x, z = p.z - c.z;
++    return EGG::Vector3f(co * x + s * z - x, 0.0f, -s * x + co * z - z);
++}
++
++} // namespace Kinoko::Field
+diff --git a/source/game/field/obj/ObjectCasinoRoulette.hh b/source/game/field/obj/ObjectCasinoRoulette.hh
+new file mode 100644
+index 0000000..e37414a
+--- /dev/null
++++ b/source/game/field/obj/ObjectCasinoRoulette.hh
+@@ -0,0 +1,40 @@
++#pragma once
++
++#include "game/field/obj/ObjectBase.hh"
++
++namespace Kinoko::Field {
++
++/// @brief Port: Chain Chomp Wheel's turning floor (retail obj_casino_roulette, USA
++/// 0x808770C0). The model turns about the vertical axis at 0.002 rad per frame. Retail
++/// collides karts with a surface of revolution sampled from casino_roulette.kcl's
++/// profile; here the course's rotating-road floor (COL_TYPE_ROTATING_ROAD) stands in for
++/// it, and karts on it are carried by the turn (KartCollide, roadVelocity).
++class ObjectCasinoRoulette final : public ObjectBase {
++public:
++    ObjectCasinoRoulette(const System::MapdataGeoObj &params);
++    ~ObjectCasinoRoulette() override;
++
++    void load() override;
++    void calc() override;
++    void createCollision() override {}
++    void calcCollisionTransform() override {}
++
++    [[nodiscard]] u32 loadFlags() const override {
++        return 1;
++    }
++
++    /// The floor's movement over one frame at world position @p p (zero without a roulette).
++    [[nodiscard]] static EGG::Vector3f RoadVelocity(const EGG::Vector3f &p);
++
++private:
++    /// @addr{0x808ADCBC} (USA): the turn per frame, radians.
++    static constexpr f32 SPEED = 0.002f;
++
++    [[nodiscard]] f32 angle(s32 t) const;
++
++    EGG::Vector3f m_initialRot;
++
++    static ObjectCasinoRoulette *s_instance;
++};
++
++} // namespace Kinoko::Field
 diff --git a/source/game/field/obj/ObjectChoropu.cc b/source/game/field/obj/ObjectChoropu.cc
 index 6316a2c..593f5c3 100644
 --- a/source/game/field/obj/ObjectChoropu.cc
@@ -1936,7 +2073,7 @@ index 14ee3e8..c10c236 100644
      f32 m_targetY;
  
 diff --git a/source/game/field/obj/ObjectId.hh b/source/game/field/obj/ObjectId.hh
-index e2bc0b5..a5a9d92 100644
+index e2bc0b5..4e58016 100644
 --- a/source/game/field/obj/ObjectId.hh
 +++ b/source/game/field/obj/ObjectId.hh
 @@ -23,9 +23,11 @@ enum class ObjectId {
@@ -1959,6 +2096,20 @@ index e2bc0b5..a5a9d92 100644
      DokanSFC = 0x12e,
      CastleTree1c = 0x130,
      MarioTreeGCc = 0x134,
+@@ -92,8 +95,13 @@ enum class ObjectId {
+     Turibashi = 0x202,
+     FlamePoleEff = 0x203,
+     Aurora = 0x204,
++    VeniceSaku = 0x205,     ///< Port: Delfino Pier's fences.
++    CasinoRoulette = 0x206, ///< Port: Chain Chomp Wheel's turning floor.
+     DCPillar = 0x208,
+     Sandcone = 0x209,
++    VeniceHasi = 0x20a, ///< Port: Delfino Pier's drawbridge.
++    Quicksand = 0x20c,  ///< Port: Thwomp Desert's sand floor.
++    BBlock = 0x20d,     ///< Port: Block Plaza's blocks (retail derives them from VolcanoPiece).
+     FlamePoleV = 0x212,
+     FlamePoleVBig = 0x216,
+     Ami = 0x20e,
 diff --git a/source/game/field/obj/ObjectItemboxPress.hh b/source/game/field/obj/ObjectItemboxPress.hh
 index 0ca6a69..fba4dbe 100644
 --- a/source/game/field/obj/ObjectItemboxPress.hh
@@ -2682,6 +2833,288 @@ index b71200d..7ee8ca2 100644
              }
          }
      } else {
+diff --git a/source/game/field/obj/ObjectQuicksand.cc b/source/game/field/obj/ObjectQuicksand.cc
+new file mode 100644
+index 0000000..acd5428
+--- /dev/null
++++ b/source/game/field/obj/ObjectQuicksand.cc
+@@ -0,0 +1,159 @@
++#include "ObjectQuicksand.hh"
++
++#include "game/field/CollisionDirector.hh"
++
++namespace Kinoko::Field {
++
++ObjectQuicksand::ObjectQuicksand(const System::MapdataGeoObj &params) : ObjectDrivable(params) {}
++
++ObjectQuicksand::~ObjectQuicksand() = default;
++
++f32 ObjectQuicksand::depth(f32 radius, const EGG::Vector3f &pos, KCLTypeMask mask) const {
++    if (!(mask & KCL_ATTRIBUTE_TYPE_BIT(ATTRIBUTE))) {
++        return 0.0f;
++    }
++
++    const f32 x = pos.x - this->pos().x, z = pos.z - this->pos().z;
++    if (x * x + z * z > RADIUS * RADIUS) {
++        return 0.0f;
++    }
++
++    // KColData's plane test: a point meets the face 0.01 above it, a sphere at its radius.
++    const f32 planeDist = pos.y - this->pos().y;
++    const f32 dist = (radius > 0.0f ? radius : 0.01f) - planeDist;
++    return dist < THICKNESS ? dist : 0.0f;
++}
++
++bool ObjectQuicksand::hitPartial(f32 dist, CollisionInfoPartial *info, KCLTypeMask *maskOut,
++        bool push) const {
++    if (dist <= 0.0f) {
++        return false;
++    }
++
++    constexpr KCLTypeMask bit = KCL_ATTRIBUTE_TYPE_BIT(ATTRIBUTE);
++    if (maskOut) {
++        if (push) {
++            CollisionDirector::Instance()->pushCollisionEntry(dist, maskOut, bit, ATTRIBUTE);
++        } else {
++            *maskOut |= bit;
++        }
++    }
++    if (info) {
++        info->update(EGG::Vector3f::ey * dist);
++    }
++    return true;
++}
++
++bool ObjectQuicksand::hitFull(f32 dist, CollisionInfo *info, KCLTypeMask *maskOut,
++        bool push) const {
++    if (dist <= 0.0f) {
++        return false;
++    }
++
++    constexpr KCLTypeMask bit = KCL_ATTRIBUTE_TYPE_BIT(ATTRIBUTE);
++    if (maskOut) {
++        if (push) {
++            CollisionDirector::Instance()->pushCollisionEntry(dist, maskOut, bit, ATTRIBUTE);
++        } else {
++            *maskOut |= bit;
++        }
++    }
++    if (info) {
++        info->update(dist, EGG::Vector3f::ey * dist, EGG::Vector3f::ey, bit);
++    }
++    return true;
++}
++
++bool ObjectQuicksand::checkPointPartial(const EGG::Vector3f &pos, const EGG::Vector3f & /*prevPos*/,
++        KCLTypeMask mask, CollisionInfoPartial *info, KCLTypeMask *maskOut) {
++    return hitPartial(depth(0.0f, pos, mask), info, maskOut, false);
++}
++
++bool ObjectQuicksand::checkPointPartialPush(const EGG::Vector3f &pos,
++        const EGG::Vector3f & /*prevPos*/, KCLTypeMask mask, CollisionInfoPartial *info,
++        KCLTypeMask *maskOut) {
++    return hitPartial(depth(0.0f, pos, mask), info, maskOut, true);
++}
++
++bool ObjectQuicksand::checkPointFull(const EGG::Vector3f &pos, const EGG::Vector3f & /*prevPos*/,
++        KCLTypeMask mask, CollisionInfo *info, KCLTypeMask *maskOut) {
++    return hitFull(depth(0.0f, pos, mask), info, maskOut, false);
++}
++
++bool ObjectQuicksand::checkPointFullPush(const EGG::Vector3f &pos, const EGG::Vector3f & /*prevPos*/,
++        KCLTypeMask mask, CollisionInfo *info, KCLTypeMask *maskOut) {
++    return hitFull(depth(0.0f, pos, mask), info, maskOut, true);
++}
++
++bool ObjectQuicksand::checkSpherePartial(f32 radius, const EGG::Vector3f &pos,
++        const EGG::Vector3f & /*prevPos*/, KCLTypeMask mask, CollisionInfoPartial *info,
++        KCLTypeMask *maskOut, u32 /*timeOffset*/) {
++    return hitPartial(depth(radius, pos, mask), info, maskOut, false);
++}
++
++bool ObjectQuicksand::checkSpherePartialPush(f32 radius, const EGG::Vector3f &pos,
++        const EGG::Vector3f & /*prevPos*/, KCLTypeMask mask, CollisionInfoPartial *info,
++        KCLTypeMask *maskOut, u32 /*timeOffset*/) {
++    return hitPartial(depth(radius, pos, mask), info, maskOut, true);
++}
++
++bool ObjectQuicksand::checkSphereFull(f32 radius, const EGG::Vector3f &pos,
++        const EGG::Vector3f & /*prevPos*/, KCLTypeMask mask, CollisionInfo *info,
++        KCLTypeMask *maskOut, u32 /*timeOffset*/) {
++    return hitFull(depth(radius, pos, mask), info, maskOut, false);
++}
++
++bool ObjectQuicksand::checkSphereFullPush(f32 radius, const EGG::Vector3f &pos,
++        const EGG::Vector3f & /*prevPos*/, KCLTypeMask mask, CollisionInfo *info,
++        KCLTypeMask *maskOut, u32 /*timeOffset*/) {
++    return hitFull(depth(radius, pos, mask), info, maskOut, true);
++}
++
++bool ObjectQuicksand::checkPointCachedPartial(const EGG::Vector3f &pos,
++        const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfoPartial *info,
++        KCLTypeMask *maskOut) {
++    return checkPointPartial(pos, prevPos, mask, info, maskOut);
++}
++
++bool ObjectQuicksand::checkPointCachedPartialPush(const EGG::Vector3f &pos,
++        const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfoPartial *info,
++        KCLTypeMask *maskOut) {
++    return checkPointPartialPush(pos, prevPos, mask, info, maskOut);
++}
++
++bool ObjectQuicksand::checkPointCachedFull(const EGG::Vector3f &pos, const EGG::Vector3f &prevPos,
++        KCLTypeMask mask, CollisionInfo *info, KCLTypeMask *maskOut) {
++    return checkPointFull(pos, prevPos, mask, info, maskOut);
++}
++
++bool ObjectQuicksand::checkPointCachedFullPush(const EGG::Vector3f &pos,
++        const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfo *info,
++        KCLTypeMask *maskOut) {
++    return checkPointFullPush(pos, prevPos, mask, info, maskOut);
++}
++
++bool ObjectQuicksand::checkSphereCachedPartial(f32 radius, const EGG::Vector3f &pos,
++        const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfoPartial *info,
++        KCLTypeMask *maskOut, u32 timeOffset) {
++    return checkSpherePartial(radius, pos, prevPos, mask, info, maskOut, timeOffset);
++}
++
++bool ObjectQuicksand::checkSphereCachedPartialPush(f32 radius, const EGG::Vector3f &pos,
++        const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfoPartial *info,
++        KCLTypeMask *maskOut, u32 timeOffset) {
++    return checkSpherePartialPush(radius, pos, prevPos, mask, info, maskOut, timeOffset);
++}
++
++bool ObjectQuicksand::checkSphereCachedFull(f32 radius, const EGG::Vector3f &pos,
++        const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfo *info, KCLTypeMask *maskOut,
++        u32 timeOffset) {
++    return checkSphereFull(radius, pos, prevPos, mask, info, maskOut, timeOffset);
++}
++
++bool ObjectQuicksand::checkSphereCachedFullPush(f32 radius, const EGG::Vector3f &pos,
++        const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfo *info, KCLTypeMask *maskOut,
++        u32 timeOffset) {
++    return checkSphereFullPush(radius, pos, prevPos, mask, info, maskOut, timeOffset);
++}
++
++} // namespace Kinoko::Field
+diff --git a/source/game/field/obj/ObjectQuicksand.hh b/source/game/field/obj/ObjectQuicksand.hh
+new file mode 100644
+index 0000000..6ae3faf
+--- /dev/null
++++ b/source/game/field/obj/ObjectQuicksand.hh
+@@ -0,0 +1,82 @@
++#pragma once
++
++#include "game/field/obj/ObjectDrivable.hh"
++
++namespace Kinoko::Field {
++
++/// @brief Port: Thwomp Desert's sand floor (retail quicksand, ObjFlow 0x20C, "quicksand;dossun").
++/// sand_battle's course.kcl leaves the arena's middle open: a disc of about 9000 units around
++/// the object has no floor, and the sand that covers it (quicksand.brres, a flat grid at the
++/// object's height, ±9500) is the object's surface. The archive carries no KCL for it, so this
++/// collides as that plane: the ring's slippery sand (KCL attribute 0x0001) within the mesh's
++/// radius. Thwomp stomps and their sand waves are not modelled.
++class ObjectQuicksand final : public ObjectDrivable {
++public:
++    ObjectQuicksand(const System::MapdataGeoObj &params);
++    ~ObjectQuicksand() override;
++
++    void createCollision() override {}
++    void calcCollisionTransform() override {}
++
++    [[nodiscard]] f32 getCollisionRadius() const override {
++        return RADIUS + 500.0f;
++    }
++
++    [[nodiscard]] bool checkPointPartial(const EGG::Vector3f &pos, const EGG::Vector3f &prevPos,
++            KCLTypeMask mask, CollisionInfoPartial *info, KCLTypeMask *maskOut) override;
++    [[nodiscard]] bool checkPointPartialPush(const EGG::Vector3f &pos, const EGG::Vector3f &prevPos,
++            KCLTypeMask mask, CollisionInfoPartial *info, KCLTypeMask *maskOut) override;
++    [[nodiscard]] bool checkPointFull(const EGG::Vector3f &pos, const EGG::Vector3f &prevPos,
++            KCLTypeMask mask, CollisionInfo *info, KCLTypeMask *maskOut) override;
++    [[nodiscard]] bool checkPointFullPush(const EGG::Vector3f &pos, const EGG::Vector3f &prevPos,
++            KCLTypeMask mask, CollisionInfo *info, KCLTypeMask *maskOut) override;
++    [[nodiscard]] bool checkSpherePartial(f32 radius, const EGG::Vector3f &pos,
++            const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfoPartial *info,
++            KCLTypeMask *maskOut, u32 timeOffset) override;
++    [[nodiscard]] bool checkSpherePartialPush(f32 radius, const EGG::Vector3f &pos,
++            const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfoPartial *info,
++            KCLTypeMask *maskOut, u32 timeOffset) override;
++    [[nodiscard]] bool checkSphereFull(f32 radius, const EGG::Vector3f &pos,
++            const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfo *info,
++            KCLTypeMask *maskOut, u32 timeOffset) override;
++    [[nodiscard]] bool checkSphereFullPush(f32 radius, const EGG::Vector3f &pos,
++            const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfo *info,
++            KCLTypeMask *maskOut, u32 timeOffset) override;
++    [[nodiscard]] bool checkPointCachedPartial(const EGG::Vector3f &pos,
++            const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfoPartial *info,
++            KCLTypeMask *maskOut) override;
++    [[nodiscard]] bool checkPointCachedPartialPush(const EGG::Vector3f &pos,
++            const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfoPartial *info,
++            KCLTypeMask *maskOut) override;
++    [[nodiscard]] bool checkPointCachedFull(const EGG::Vector3f &pos, const EGG::Vector3f &prevPos,
++            KCLTypeMask mask, CollisionInfo *info, KCLTypeMask *maskOut) override;
++    [[nodiscard]] bool checkPointCachedFullPush(const EGG::Vector3f &pos,
++            const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfo *info,
++            KCLTypeMask *maskOut) override;
++    [[nodiscard]] bool checkSphereCachedPartial(f32 radius, const EGG::Vector3f &pos,
++            const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfoPartial *info,
++            KCLTypeMask *maskOut, u32 timeOffset) override;
++    [[nodiscard]] bool checkSphereCachedPartialPush(f32 radius, const EGG::Vector3f &pos,
++            const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfoPartial *info,
++            KCLTypeMask *maskOut, u32 timeOffset) override;
++    [[nodiscard]] bool checkSphereCachedFull(f32 radius, const EGG::Vector3f &pos,
++            const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfo *info,
++            KCLTypeMask *maskOut, u32 timeOffset) override;
++    [[nodiscard]] bool checkSphereCachedFullPush(f32 radius, const EGG::Vector3f &pos,
++            const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfo *info,
++            KCLTypeMask *maskOut, u32 timeOffset) override;
++
++private:
++    /// quicksand.brres MDL0 extents (±9499.5 in X and Z, flat at Y 0).
++    static constexpr f32 RADIUS = 9500.0f;
++    /// How far below the sand a point or sphere still meets it, as a KCL prism's thickness.
++    static constexpr f32 THICKNESS = 300.0f;
++    static constexpr u16 ATTRIBUTE = 0x0001;
++
++    /// Penetration of a sphere (radius 0 for a point) into the sand, or <= 0 for none.
++    [[nodiscard]] f32 depth(f32 radius, const EGG::Vector3f &pos, KCLTypeMask mask) const;
++    bool hitPartial(f32 dist, CollisionInfoPartial *info, KCLTypeMask *maskOut, bool push) const;
++    bool hitFull(f32 dist, CollisionInfo *info, KCLTypeMask *maskOut, bool push) const;
++};
++
++} // namespace Kinoko::Field
+diff --git a/source/game/field/obj/ObjectRegistry.hh b/source/game/field/obj/ObjectRegistry.hh
+index c206e01..be3a72d 100644
+--- a/source/game/field/obj/ObjectRegistry.hh
++++ b/source/game/field/obj/ObjectRegistry.hh
+@@ -11,6 +11,7 @@
+ #include "game/field/obj/ObjectBulldozer.hh"
+ #include "game/field/obj/ObjectCarA.hh"
+ #include "game/field/obj/ObjectCarTGE.hh"
++#include "game/field/obj/ObjectCasinoRoulette.hh"
+ #include "game/field/obj/ObjectChoropu.hh"
+ #include "game/field/obj/ObjectCow.hh"
+ #include "game/field/obj/ObjectCrab.hh"
+@@ -53,6 +54,7 @@
+ #include "game/field/obj/ObjectPsea.hh"
+ #include "game/field/obj/ObjectPuchiPakkun.hh"
+ #include "game/field/obj/ObjectPylon.hh"
++#include "game/field/obj/ObjectQuicksand.hh"
+ #include "game/field/obj/ObjectRock.hh"
+ #include "game/field/obj/ObjectSanbo.hh"
+ #include "game/field/obj/ObjectSandcone.hh"
+@@ -63,6 +65,8 @@
+ #include "game/field/obj/ObjectTruckWagon.hh"
+ #include "game/field/obj/ObjectTuribashi.hh"
+ #include "game/field/obj/ObjectTwistedWay.hh"
++#include "game/field/obj/ObjectVeniceHasi.hh"
++#include "game/field/obj/ObjectVeniceSaku.hh"
+ #include "game/field/obj/ObjectVolcanoBallLauncher.hh"
+ #include "game/field/obj/ObjectVolcanoPiece.hh"
+ #include "game/field/obj/ObjectVolcanoRock.hh"
 diff --git a/source/game/field/obj/ObjectRock.cc b/source/game/field/obj/ObjectRock.cc
 index 4fa2c4d..693ee85 100644
 --- a/source/game/field/obj/ObjectRock.cc
@@ -2841,6 +3274,330 @@ index 5426b1c..1011593 100644
      /// @addr{0x80814910}
      [[nodiscard]] u32 loadFlags() const override {
          return 1;
+diff --git a/source/game/field/obj/ObjectVeniceHasi.cc b/source/game/field/obj/ObjectVeniceHasi.cc
+new file mode 100644
+index 0000000..316e55a
+--- /dev/null
++++ b/source/game/field/obj/ObjectVeniceHasi.cc
+@@ -0,0 +1,118 @@
++#include "ObjectVeniceHasi.hh"
++
++#include "game/system/RaceManager.hh"
++#include "game/system/ResourceManager.hh"
++
++namespace Kinoko::Field {
++
++/// @addr{0x80803924} (USA)
++ObjectVeniceHasi::ObjectVeniceHasi(const System::MapdataGeoObj &params) : ObjectKCL(params) {
++    m_startFrame = static_cast<s16>(params.setting(0));
++    m_rate = static_cast<f32>(static_cast<s16>(params.setting(1)));
++    if (m_rate <= 0.0f) {
++        m_rate = 1.0f;
++    }
++    m_initialRot = rot();
++
++    calcTransform();
++    m_currTransform = transform();
++}
++
++/// The inactive collision manager is ours to free; ObjectKCL frees the active one.
++ObjectVeniceHasi::~ObjectVeniceHasi() {
++    if (m_wallColMgr != m_objColMgr) {
++        EGG::egg_delete(m_wallColMgr);
++    }
++    if (m_roadColMgr != m_objColMgr) {
++        EGG::egg_delete(m_roadColMgr);
++    }
++}
++
++/// @addr{0x80803C34} (USA)
++void ObjectVeniceHasi::createCollision() {
++    ObjectKCL::createCollision();
++    m_roadColMgr = m_objColMgr;
++
++    char filepath[128];
++    snprintf(filepath, sizeof(filepath), "%s_wall.kcl", getKclName());
++    auto *resMgr = System::ResourceManager::Instance();
++    const void *file = resMgr->getFile(filepath, nullptr, System::ArchiveId::Course);
++    m_wallColMgr = file ? EGG::egg_new<ObjColMgr>(file) : m_roadColMgr;
++
++    selectCollision(0);
++}
++
++void ObjectVeniceHasi::selectCollision(s32 t) {
++    m_objColMgr = t < m_startFrame ? m_wallColMgr : m_roadColMgr;
++}
++
++/// @addr{0x80803D38} (USA)
++void ObjectVeniceHasi::calc() {
++    EGG::Vector3f prevPos = pos();
++    setTransform(getUpdatedMatrix(0));
++    setMovingObjVel(pos() - prevPos);
++
++    // Sounds: a warning 300 frames ahead, the motor while lowering, the landing once.
++    s32 t = static_cast<s32>(System::RaceManager::Instance()->timer());
++    f32 end = static_cast<f32>(m_startFrame) + static_cast<f32>(ANIM_FRAMES) * m_rate;
++    if (t < m_startFrame) {
++        if (t == m_startFrame - 300 && !m_warned) {
++            cueSound(0x304, SoundCall::Start);
++            m_warned = true;
++        }
++    } else if (static_cast<f32>(t) < end) {
++        cueSound(0x305, SoundCall::Hold);
++    } else if (!m_settled) {
++        cueSound(0x306, SoundCall::Start);
++        m_settled = true;
++    }
++}
++
++/// @addr{0x80804620} (USA)
++const EGG::Matrix34f &ObjectVeniceHasi::getUpdatedMatrix(u32 timeOffset) {
++    s32 t = static_cast<s32>(System::RaceManager::Instance()->timer() - timeOffset);
++    f32 duration = static_cast<f32>(ANIM_FRAMES) * m_rate;
++
++    EGG::Vector3f r = m_initialRot;
++    if (t <= m_startFrame) {
++        // Raised at the placement's pitch.
++    } else if (static_cast<f32>(t) < static_cast<f32>(m_startFrame) + duration) {
++        r.x = m_initialRot.x * (1.0f - static_cast<f32>(t - m_startFrame) / duration);
++    } else {
++        r.x = 0.0f;
++    }
++
++    m_currTransform.makeRT(r, m_currTransform.base(3));
++    selectCollision(t);
++    return m_currTransform;
++}
++
++f32 ObjectVeniceHasi::animFrame() const {
++    s32 t = static_cast<s32>(System::RaceManager::Instance()->timer());
++    if (t < m_startFrame) {
++        return 0.0f;
++    }
++
++    f32 frame = static_cast<f32>(t - m_startFrame) / m_rate;
++    return frame < static_cast<f32>(ANIM_FRAMES) ? frame : static_cast<f32>(ANIM_FRAMES - 1);
++}
++
++bool ObjectVeniceHasi::checkCollision(f32 radius, const EGG::Vector3f &pos,
++        const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfo *info, KCLTypeMask *maskOut,
++        u32 timeOffset) {
++    update(timeOffset);
++    calcScale(timeOffset);
++
++    return m_objColMgr->checkSphereFullPush(radius, pos, prevPos, mask, info, maskOut);
++}
++
++bool ObjectVeniceHasi::checkCollisionCached(f32 radius, const EGG::Vector3f &pos,
++        const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfo *info, KCLTypeMask *maskOut,
++        u32 timeOffset) {
++    update(timeOffset);
++    calcScale(timeOffset);
++
++    return m_objColMgr->checkSphereCachedFullPush(radius, pos, prevPos, mask, info, maskOut);
++}
++
++} // namespace Kinoko::Field
+diff --git a/source/game/field/obj/ObjectVeniceHasi.hh b/source/game/field/obj/ObjectVeniceHasi.hh
+new file mode 100644
+index 0000000..09b6869
+--- /dev/null
++++ b/source/game/field/obj/ObjectVeniceHasi.hh
+@@ -0,0 +1,58 @@
++#pragma once
++
++#include "game/field/obj/ObjectKCL.hh"
++
++namespace Kinoko::Field {
++
++/// @brief Port: Delfino Pier's drawbridge (retail obj_venice_hasi, USA 0x80803924). It
++/// starts raised at its placement's pitch, where venice_hasi_wall.kcl makes it a wall.
++/// From the start frame it lowers flat over its animation and becomes the drivable
++/// venice_hasi.kcl, rotating with it.
++class ObjectVeniceHasi final : public ObjectKCL {
++public:
++    ObjectVeniceHasi(const System::MapdataGeoObj &params);
++    ~ObjectVeniceHasi() override;
++
++    void calc() override;
++    void createCollision() override;
++
++    [[nodiscard]] u32 loadFlags() const override {
++        return 1;
++    }
++
++    [[nodiscard]] const EGG::Matrix34f &getUpdatedMatrix(u32 timeOffset) override;
++
++    /// @addr{0x80804B0C} (USA)
++    [[nodiscard]] f32 colRadiusAdditionalLength() const override {
++        return 1000.0f;
++    }
++
++    [[nodiscard]] bool checkCollision(f32 radius, const EGG::Vector3f &pos,
++            const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfo *info,
++            KCLTypeMask *maskOut, u32 timeOffset) override;
++    [[nodiscard]] bool checkCollisionCached(f32 radius, const EGG::Vector3f &pos,
++            const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfo *info,
++            KCLTypeMask *maskOut, u32 timeOffset) override;
++
++    /// The bridge model's CHR0 frame (presentation): 0 before the start frame, the
++    /// lowering animation, then held on its last frame.
++    [[nodiscard]] f32 animFrame() const;
++
++private:
++    /// venice_hasi.brres's CHR0 "venice_hasi" has 30 frames; retail reads the count from
++    /// the animation (Kinoko's drivable objects load no graphics).
++    static constexpr s32 ANIM_FRAMES = 30;
++
++    void selectCollision(s32 t);
++
++    s32 m_startFrame; ///< Setting 0.
++    f32 m_rate;       ///< Setting 1: game frames per animation frame.
++    EGG::Vector3f m_initialRot;
++    ObjColMgr *m_wallColMgr = nullptr;
++    ObjColMgr *m_roadColMgr = nullptr;
++    bool m_warned = false;
++    bool m_settled = false;
++    EGG::Matrix34f m_currTransform;
++};
++
++} // namespace Kinoko::Field
+diff --git a/source/game/field/obj/ObjectVeniceSaku.cc b/source/game/field/obj/ObjectVeniceSaku.cc
+new file mode 100644
+index 0000000..64416ce
+--- /dev/null
++++ b/source/game/field/obj/ObjectVeniceSaku.cc
+@@ -0,0 +1,78 @@
++#include "ObjectVeniceSaku.hh"
++
++#include "game/system/RaceManager.hh"
++
++#include <cmath>
++
++namespace Kinoko::Field {
++
++/// @addr{0x80804B78} (USA)
++ObjectVeniceSaku::ObjectVeniceSaku(const System::MapdataGeoObj &params) : ObjectKCL(params) {
++    m_startFrame = static_cast<s16>(params.setting(0));
++    m_rise = static_cast<f32>(static_cast<s16>(params.setting(1)));
++    m_initialY = pos().y;
++
++    calcTransform();
++    m_currTransform = transform();
++}
++
++ObjectVeniceSaku::~ObjectVeniceSaku() = default;
++
++/// @addr{0x80804C20} (USA)
++void ObjectVeniceSaku::calc() {
++    EGG::Vector3f prevPos = pos();
++    setTransform(getUpdatedMatrix(0));
++    setMovingObjVel(pos() - prevPos);
++
++    s32 t = static_cast<s32>(System::RaceManager::Instance()->timer());
++    if (t > m_startFrame && t < m_startFrame + RISE_FRAMES) {
++        cueSound(0x307, SoundCall::Hold);
++    } else if (t >= m_startFrame + RISE_FRAMES && !m_settled) {
++        cueSound(0x308, SoundCall::Start);
++        m_settled = true;
++    }
++}
++
++/// @addr{0x80804EB4} (USA)
++f32 ObjectVeniceSaku::calcHeight(s32 t) const {
++    if (t <= m_startFrame) {
++        return m_initialY;
++    }
++
++    if (t >= m_startFrame + RISE_FRAMES) {
++        return m_initialY + m_rise;
++    }
++
++    // Retail: y0 + rise / 2 * (1 - cos(pi * (frame - 0.5) / duration)), in doubles.
++    double frame = static_cast<double>((t - m_startFrame) % RISE_FRAMES) - 0.5;
++    double angle = 3.14159265358979 * frame / static_cast<double>(RISE_FRAMES);
++    return static_cast<f32>(m_initialY + 0.5 * m_rise * (1.0 - std::cos(angle)));
++}
++
++const EGG::Matrix34f &ObjectVeniceSaku::getUpdatedMatrix(u32 timeOffset) {
++    s32 t = static_cast<s32>(System::RaceManager::Instance()->timer() - timeOffset);
++    EGG::Vector3f base = m_currTransform.base(3);
++    base.y = calcHeight(t);
++    m_currTransform.setBase(3, base);
++    return m_currTransform;
++}
++
++bool ObjectVeniceSaku::checkCollision(f32 radius, const EGG::Vector3f &pos,
++        const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfo *info, KCLTypeMask *maskOut,
++        u32 timeOffset) {
++    update(timeOffset);
++    calcScale(timeOffset);
++
++    return m_objColMgr->checkSphereFullPush(radius, pos, prevPos, mask, info, maskOut);
++}
++
++bool ObjectVeniceSaku::checkCollisionCached(f32 radius, const EGG::Vector3f &pos,
++        const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfo *info, KCLTypeMask *maskOut,
++        u32 timeOffset) {
++    update(timeOffset);
++    calcScale(timeOffset);
++
++    return m_objColMgr->checkSphereCachedFullPush(radius, pos, prevPos, mask, info, maskOut);
++}
++
++} // namespace Kinoko::Field
+diff --git a/source/game/field/obj/ObjectVeniceSaku.hh b/source/game/field/obj/ObjectVeniceSaku.hh
+new file mode 100644
+index 0000000..6f9b710
+--- /dev/null
++++ b/source/game/field/obj/ObjectVeniceSaku.hh
+@@ -0,0 +1,46 @@
++#pragma once
++
++#include "game/field/obj/ObjectKCL.hh"
++
++namespace Kinoko::Field {
++
++/// @brief Port: Delfino Pier's fences (retail ObjSaku, USA 0x80804B78). From the start
++/// frame they rise by their height setting along a half cosine, then stay up.
++class ObjectVeniceSaku final : public ObjectKCL {
++public:
++    ObjectVeniceSaku(const System::MapdataGeoObj &params);
++    ~ObjectVeniceSaku() override;
++
++    void calc() override;
++
++    [[nodiscard]] u32 loadFlags() const override {
++        return 1;
++    }
++
++    [[nodiscard]] const EGG::Matrix34f &getUpdatedMatrix(u32 timeOffset) override;
++
++    [[nodiscard]] f32 colRadiusAdditionalLength() const override {
++        return m_rise;
++    }
++
++    [[nodiscard]] bool checkCollision(f32 radius, const EGG::Vector3f &pos,
++            const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfo *info,
++            KCLTypeMask *maskOut, u32 timeOffset) override;
++    [[nodiscard]] bool checkCollisionCached(f32 radius, const EGG::Vector3f &pos,
++            const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfo *info,
++            KCLTypeMask *maskOut, u32 timeOffset) override;
++
++private:
++    /// Retail's default rise duration (static 0x808D0BEA, never set from the KMP).
++    static constexpr s32 RISE_FRAMES = 120;
++
++    [[nodiscard]] f32 calcHeight(s32 t) const;
++
++    s32 m_startFrame; ///< Setting 0.
++    f32 m_rise;       ///< Setting 1: how far the fence rises.
++    f32 m_initialY;
++    bool m_settled = false;
++    EGG::Matrix34f m_currTransform;
++};
++
++} // namespace Kinoko::Field
 diff --git a/source/game/field/obj/ObjectVolcanoBall.cc b/source/game/field/obj/ObjectVolcanoBall.cc
 index e93d05e..c605a33 100644
 --- a/source/game/field/obj/ObjectVolcanoBall.cc
@@ -2896,10 +3653,22 @@ index 57e64e5..4f6fa8c 100644
      owning_span<ObjectVolcanoBall *> m_balls;
      const f32 m_initDelay;
 diff --git a/source/game/field/obj/ObjectVolcanoPiece.cc b/source/game/field/obj/ObjectVolcanoPiece.cc
-index 0fe43f8..4a5bbc4 100644
+index 0fe43f8..de1317d 100644
 --- a/source/game/field/obj/ObjectVolcanoPiece.cc
 +++ b/source/game/field/obj/ObjectVolcanoPiece.cc
-@@ -28,6 +28,26 @@ void ObjectVolcanoPiece::calc() {
+@@ -11,7 +11,10 @@ ObjectVolcanoPiece::ObjectVolcanoPiece(const System::MapdataGeoObj &params)
+       m_shakeDuration(m_restDuration + params.setting(2) * 60),
+       m_quakeDuration(m_shakeDuration + params.setting(7) + 1), m_colMgrB(nullptr),
+       m_colMgrC(nullptr) {
+-    snprintf(m_modelName, sizeof(m_modelName), "VolcanoPiece%hd",
++    // Block Plaza's blocks (0x20d) share the class under their own name (retail
++    // bblock::__ct, USA 0x807F61C8: "bblock%d"), so bblockN.kcl and bblockNb.kcl.
++    snprintf(m_modelName, sizeof(m_modelName),
++            params.id() == static_cast<u16>(ObjectId::BBlock) ? "bblock%hd" : "VolcanoPiece%hd",
+             static_cast<s16>(params.setting(0)));
+ }
+ 
+@@ -28,6 +31,26 @@ void ObjectVolcanoPiece::calc() {
          update(0);
      }
  
@@ -3711,10 +4480,10 @@ index 9d706df..4213ce0 100644
      m_timer = 0;
      m_phase = 0;
 diff --git a/source/game/kart/KartCollide.cc b/source/game/kart/KartCollide.cc
-index 5ac1c77..995bc5d 100644
+index 5ac1c77..51ce8fe 100644
 --- a/source/game/kart/KartCollide.cc
 +++ b/source/game/kart/KartCollide.cc
-@@ -1,7 +1,11 @@
+@@ -1,13 +1,18 @@
  #include "KartCollide.hh"
  
 +#include <cstring>
@@ -3726,7 +4495,14 @@ index 5ac1c77..995bc5d 100644
  #include "game/kart/KartPhysics.hh"
  #include "game/kart/KartState.hh"
  
-@@ -40,6 +44,281 @@ void KartCollide::init() {
+ #include "game/field/CollisionDirector.hh"
+ #include "game/field/ObjectCollisionKart.hh"
+ #include "game/field/ObjectDirector.hh"
++#include "game/field/obj/ObjectCasinoRoulette.hh"
+ 
+ #include <egg/math/BoundBox.hh>
+ #include <egg/math/Math.hh>
+@@ -40,6 +45,283 @@ void KartCollide::init() {
      m_poleAngVelTimer = 0;
      m_poleYaw = 0.0f;
      m_colPerpendicularity = 0.0f;
@@ -3748,6 +4524,7 @@ index 5ac1c77..995bc5d 100644
 +KartCollide::ItemCollisionHook KartCollide::s_itemCollisionHook = nullptr;
 +void *KartCollide::s_itemCollisionContext = nullptr;
 +KartCollide::KartBumpHook KartCollide::s_kartBumpHook = nullptr;
++u16 KartCollide::s_intangibleMask = 0;
 +void *KartCollide::s_kartBumpContext = nullptr;
 +
 +/// @brief RMCU 0x805905e4: item contacts for this racer, after its object collision.
@@ -3792,6 +4569,7 @@ index 5ac1c77..995bc5d 100644
 +    const u8 selfIdx = param()->playerIdx();
 +    const u8 otherIdx = other->param()->playerIdx();
 +    if (selfIdx == otherIdx || KartCollisionExempt(self) || KartCollisionExempt(other) ||
++            (s_intangibleMask & ((1u << selfIdx) | (1u << otherIdx))) ||
 +            (m_kartPairMask & (1u << otherIdx))) {
 +        return false;
 +    }
@@ -4008,7 +4786,19 @@ index 5ac1c77..995bc5d 100644
  }
  
  /// @addr{0x805730D4}
-@@ -294,6 +573,8 @@ void KartCollide::calcFloorEffect() {
+@@ -253,6 +535,11 @@ void KartCollide::calcBodyCollision(f32 totalScale, f32 sinkDepth, const EGG::Qu
+                 if (colInfo.movingFloorDist > -std::numeric_limits<f32>::min()) {
+                     collisionData.bHasRoadVel = true;
+                     collisionData.roadVelocity = colInfo.roadVelocity;
++                } else if (!!(maskOut & KCL_TYPE_BIT(COL_TYPE_ROTATING_ROAD))) {
++                    // Port: Chain Chomp Wheel's turning floor (see calcWheelCollision).
++                    collisionData.bHasRoadVel = true;
++                    collisionData.roadVelocity =
++                            Field::ObjectCasinoRoulette::RoadVelocity(hitbox.worldPos());
+                 }
+ 
+                 processBody(collisionData, hitbox, &colInfo, &maskOut);
+@@ -294,6 +581,8 @@ void KartCollide::calcFloorEffect() {
              colDir->findClosestCollisionEntry(&mask, KCL_TYPE_BIT(COL_TYPE_SOLID_OOB));
          }
  
@@ -4017,7 +4807,7 @@ index 5ac1c77..995bc5d 100644
          activateOob(true, &mask, false, false);
      }
  
-@@ -353,6 +634,16 @@ void KartCollide::calcTriggers(Field::KCLTypeMask *mask, const EGG::Vector3f &po
+@@ -353,6 +642,16 @@ void KartCollide::calcTriggers(Field::KCLTypeMask *mask, const EGG::Vector3f &po
  
  /// @addr{0x8056F510}
  void KartCollide::handleTriggers(Field::KCLTypeMask *mask) {
@@ -4034,7 +4824,7 @@ index 5ac1c77..995bc5d 100644
      calcFallBoundary(mask, false);
      processCannon(mask);
  
-@@ -389,6 +680,11 @@ void KartCollide::calcFallBoundary(Field::KCLTypeMask *mask, bool shortBoundary)
+@@ -389,6 +688,11 @@ void KartCollide::calcFallBoundary(Field::KCLTypeMask *mask, bool shortBoundary)
      }
  
      if (!safe) {
@@ -4046,7 +4836,7 @@ index 5ac1c77..995bc5d 100644
          activateOob(false, mask, false, false);
      }
  }
-@@ -415,16 +711,49 @@ void KartCollide::calcBeforeRespawn() {
+@@ -415,16 +719,49 @@ void KartCollide::calcBeforeRespawn() {
  }
  
  /// @addr{0x80573B00}
@@ -4097,7 +4887,18 @@ index 5ac1c77..995bc5d 100644
      move()->initOob();
  
      m_respawnTimer = RESPAWN_TIME;
-@@ -572,6 +901,11 @@ void KartCollide::calcObjectCollision() {
+@@ -484,6 +821,10 @@ void KartCollide::calcWheelCollision(u16 /*wheelIdx*/, CollisionGroup *hitboxGro
+     if (colInfo.movingFloorDist > -std::numeric_limits<f32>::min()) {
+         collisionData.bHasRoadVel = true;
+         collisionData.roadVelocity = colInfo.roadVelocity;
++    } else if (!!(kclOut & KCL_TYPE_BIT(COL_TYPE_ROTATING_ROAD))) {
++        // Port: Chain Chomp Wheel's turning floor carries the kart with it.
++        collisionData.bHasRoadVel = true;
++        collisionData.roadVelocity = Field::ObjectCasinoRoulette::RoadVelocity(center);
+     }
+ 
+     processWheel(collisionData, firstHitbox, &colInfo, &kclOut);
+@@ -572,6 +913,11 @@ void KartCollide::calcObjectCollision() {
      for (size_t i = 0; i < collisionCount; ++i) {
          Reaction reaction = objectDirector->reaction(i);
          if (reaction != Reaction::None && reaction != Reaction::UNK_7) {
@@ -4109,7 +4910,7 @@ index 5ac1c77..995bc5d 100644
              size_t handlerIdx = static_cast<std::underlying_type_t<Reaction>>(reaction);
              Action newAction = (this->*s_objectCollisionHandlers[handlerIdx])(i);
  
-@@ -835,11 +1169,21 @@ void KartCollide::applySomeFloorMoment(f32 down, f32 rate, CollisionGroup *hitbo
+@@ -835,11 +1181,21 @@ void KartCollide::applySomeFloorMoment(f32 down, f32 rate, CollisionGroup *hitbo
          return;
      }
  
@@ -4137,7 +4938,7 @@ index 5ac1c77..995bc5d 100644
      EGG::Vector3f crossVec = colData.relPos.cross(colData.floorNrm);
      crossVec = tmp.multVector(crossVec);
 diff --git a/source/game/kart/KartCollide.hh b/source/game/kart/KartCollide.hh
-index 714bada..2396c09 100644
+index 714bada..05648bf 100644
 --- a/source/game/kart/KartCollide.hh
 +++ b/source/game/kart/KartCollide.hh
 @@ -8,9 +8,13 @@
@@ -4174,7 +4975,7 @@ index 714bada..2396c09 100644
      void calcWheelCollision(u16 wheelIdx, CollisionGroup *hitboxGroup, const EGG::Vector3f &colVel,
              const EGG::Vector3f &center, f32 radius);
      void calcSideCollision(CollisionData &collisionData, Hitbox &hitbox,
-@@ -113,6 +130,33 @@ public:
+@@ -113,6 +130,38 @@ public:
      void startFloorMomentRate();
      void calcFloorMomentRate();
  
@@ -4192,6 +4993,11 @@ index 714bada..2396c09 100644
 +    /// (0x8079156c) whenever the victim's bump timer has run out; a race item controller
 +    /// registers this hook.
 +    using KartBumpHook = void (*)(void *context, size_t attacker, size_t victim);
++    /// Port: racers (bit per player index) that never touch another racer, as
++    /// retail's ghosts (Time Trial ghosts replaying a recorded run).
++    static void SetIntangibleMask(u16 mask) {
++        s_intangibleMask = mask;
++    }
 +    static void SetKartBumpHook(KartBumpHook hook, void *context) {
 +        s_kartBumpHook = hook;
 +        s_kartBumpContext = context;
@@ -4208,7 +5014,7 @@ index 714bada..2396c09 100644
      /// Object collision functions
      Action handleReactNone(size_t idx);
      Action handleReactWallAllSpeed(size_t idx);
-@@ -203,6 +247,17 @@ public:
+@@ -203,6 +252,17 @@ public:
      [[nodiscard]] f32 colPerpendicularity() const {
          return m_colPerpendicularity;
      }
@@ -4226,7 +5032,7 @@ index 714bada..2396c09 100644
      /// @endGetters
  
  private:
-@@ -226,8 +281,30 @@ private:
+@@ -226,8 +286,31 @@ private:
      s16 m_poleAngVelTimer;
      f32 m_poleYaw;
      f32 m_colPerpendicularity;
@@ -4252,6 +5058,7 @@ index 714bada..2396c09 100644
      static std::array<ObjectCollisionHandler, 33> s_objectCollisionHandlers;
 +    static ItemCollisionHook s_itemCollisionHook;
 +    static KartBumpHook s_kartBumpHook;
++    static u16 s_intangibleMask;
 +    static void *s_kartBumpContext;
 +    static void *s_itemCollisionContext;
  };
@@ -5704,7 +6511,7 @@ index b323386..fe96dff 100644
  }
  
 diff --git a/source/game/system/RaceConfig.hh b/source/game/system/RaceConfig.hh
-index e9ab671..3246dfe 100644
+index e9ab671..be3e208 100644
 --- a/source/game/system/RaceConfig.hh
 +++ b/source/game/system/RaceConfig.hh
 @@ -27,7 +27,8 @@ public:
@@ -5736,13 +6543,16 @@ index e9ab671..3246dfe 100644
              Ghost_Race = 5,
          };
  
-@@ -50,6 +57,14 @@ public:
+@@ -50,6 +57,17 @@ public:
          std::array<Player, 12> players;
          u8 playerCount;
          Course course;
 +        u8 engineClass = 2; // Retail settings: 0=50cc, 1=100cc, 2=150cc.
 +        GameMode gameMode = GameMode::Time_Trial;
 +        bool mirror = false;
++        /// Port: every racer starts on the first grid spot of a one-racer
++        /// race (a Time Trial ghost overlaps the player, as retail's do).
++        bool sharedStart = false;
 +        [[nodiscard]] f32 engineClassRate() const {
 +            // USA Kart::Movement constructor 80571840; table 808b1414.
 +            constexpr f32 rates[] = {0.8f, 0.9f, 1.0f};
@@ -5752,10 +6562,10 @@ index e9ab671..3246dfe 100644
  
      typedef std::function<void(RaceConfig *, void *)> InitCallback;
 diff --git a/source/game/system/RaceManager.cc b/source/game/system/RaceManager.cc
-index 42decd3..a574c85 100644
+index 42decd3..d96d827 100644
 --- a/source/game/system/RaceManager.cc
 +++ b/source/game/system/RaceManager.cc
-@@ -13,14 +13,16 @@ namespace Kinoko::System {
+@@ -13,14 +13,40 @@ namespace Kinoko::System {
  
  /// @addr{0x80532F88}
  void RaceManager::init() {
@@ -5770,6 +6580,30 @@ index 42decd3..a574c85 100644
 -    u32 playerCount = 1;
 +void RaceManager::findKartStartPoint(EGG::Vector3f &pos, EGG::Vector3f &angles, size_t index) {
 +    ASSERT(index < m_playerCount);
++    // Port: battle arenas (Raceinfo::GetKTPTHolder's battle cases) have one
++    // start point per player slot, each tagged with its slot (KTPT player
++    // index): slots 0-5 hold one side of the arena, 6-11 the other. Teams
++    // alternate (racer i on team i % 2), so red takes 0-5 and blue 6-11.
++    const auto course = static_cast<u32>(RaceConfig::Instance()->raceScenario().course);
++    if (course >= static_cast<u32>(Course::Delfino_Pier) &&
++            course <= static_cast<u32>(Course::N64_Skyscraper)) {
++        const s16 slot = static_cast<s16>((index % 2) * 6 + index / 2);
++        auto *courseMap = CourseMap::Instance();
++        for (u16 i = 0; i < courseMap->getStartPointCount(); ++i) {
++            const MapdataStartPoint *point = courseMap->getStartPoint(i);
++            if (point->playerIndex() == slot) {
++                pos = point->position();
++                angles = point->rotation();
++                return;
++            }
++        }
++    }
++    if (RaceConfig::Instance()->raceScenario().sharedStart) {
++        if (MapdataStartPoint *point = CourseMap::Instance()->getStartPoint(0)) {
++            point->findKartStartPoint(pos, angles, 0, 1);
++            return;
++        }
++    }
 +    // Port: a set grid slot (the previous race's finishing order) if any.
 +    const u8 slot = RaceConfig::Instance()->raceScenario().players[index].startPosition;
 +    u32 placement = slot < m_playerCount ? slot + 1u : index + 1;
@@ -5777,7 +6611,7 @@ index 42decd3..a574c85 100644
      u32 startPointIdx = 0;
  
      MapdataStartPoint *kartpoint = CourseMap::Instance()->getStartPoint(startPointIdx);
-@@ -34,9 +36,12 @@ void RaceManager::findKartStartPoint(EGG::Vector3f &pos, EGG::Vector3f &angles)
+@@ -34,9 +60,12 @@ void RaceManager::findKartStartPoint(EGG::Vector3f &pos, EGG::Vector3f &angles)
  }
  
  /// @addr{0x80533C6C}
@@ -5793,7 +6627,7 @@ index 42decd3..a574c85 100644
  }
  
  /// @addr{0x805331B4}
-@@ -44,11 +49,11 @@ void RaceManager::calc() {
+@@ -44,11 +73,11 @@ void RaceManager::calc() {
      constexpr u16 STAGE_INTRO_DURATION = 172;
  
      m_timerManager.calc();
@@ -5807,7 +6641,7 @@ index 42decd3..a574c85 100644
              m_stage = Stage::Countdown;
              KPadDirector::Instance()->startGhostProxies();
          }
-@@ -60,6 +65,7 @@ void RaceManager::calc() {
+@@ -60,6 +89,7 @@ void RaceManager::calc() {
          }
          break;
      case Stage::Race:
@@ -5815,18 +6649,38 @@ index 42decd3..a574c85 100644
          ++m_timer;
          break;
      default:
-@@ -68,8 +74,8 @@ void RaceManager::calc() {
+@@ -68,9 +98,27 @@ void RaceManager::calc() {
  }
  
  /// @addr{0x8053621C}
 -MapdataJugemPoint *RaceManager::jugemPoint() const {
 -    s8 jugemId = std::max<s8>(m_player.jugemId(), 0);
+-    return System::CourseMap::Instance()->getJugemPoint(static_cast<u16>(jugemId));
 +MapdataJugemPoint *RaceManager::jugemPoint(size_t index) const {
++    auto *courseMap = System::CourseMap::Instance();
++    // Port: battle arenas have no checkpoints to name a respawn point, so the
++    // kart returns at the point nearest (on the ground plane) to where it fell
++    // (KartMove::calcRespawnStart asks before moving the kart).
++    if (courseMap->getCheckPointCount() == 0 && courseMap->getJugemPointCount() > 1) {
++        const EGG::Vector3f &pos = Kart::KartObjectManager::Instance()->object(index)->pos();
++        u16 nearest = 0;
++        f32 best = 0.0f;
++        for (u16 i = 0; i < courseMap->getJugemPointCount(); ++i) {
++            const EGG::Vector3f &p = courseMap->getJugemPoint(i)->pos();
++            const f32 dx = p.x - pos.x, dz = p.z - pos.z, d = dx * dx + dz * dz;
++            if (i == 0 || d < best) {
++                best = d;
++                nearest = i;
++            }
++        }
++        return courseMap->getJugemPoint(nearest);
++    }
 +    s8 jugemId = std::max<s8>(player(index).jugemId(), 0);
-     return System::CourseMap::Instance()->getJugemPoint(static_cast<u16>(jugemId));
++    return courseMap->getJugemPoint(static_cast<u16>(jugemId));
  }
  
-@@ -90,7 +96,10 @@ void RaceManager::DestroyInstance() {
+ /// @addr{0x80532084}
+@@ -90,7 +138,10 @@ void RaceManager::DestroyInstance() {
  
  /// @addr{0x805327A0}
  RaceManager::RaceManager()
@@ -5838,7 +6692,7 @@ index 42decd3..a574c85 100644
  
  /// @addr{0x80532E3C}
  RaceManager::~RaceManager() {
-@@ -123,11 +132,17 @@ RaceManager::Player::Player() {
+@@ -123,11 +174,17 @@ RaceManager::Player::Player() {
  }
  
  /// @addr{0x80534194}
@@ -5858,7 +6712,7 @@ index 42decd3..a574c85 100644
          f32 distanceRatio;
          s16 checkpointId = courseMap->findSector(pos, 0, distanceRatio);
  
-@@ -140,8 +155,9 @@ void RaceManager::Player::init() {
+@@ -140,8 +197,9 @@ void RaceManager::Player::init() {
  
  /// @addr{0x80535304}
  void RaceManager::Player::calc() {
@@ -5869,7 +6723,7 @@ index 42decd3..a574c85 100644
  
      if (courseMap->getCheckPointCount() == 0 || courseMap->getCheckPathCount() == 0 ||
              kart->status().onBit(Kart::eStatus::BeforeRespawn)) {
-@@ -275,7 +291,7 @@ void RaceManager::Player::incrementLap() {
+@@ -275,7 +333,7 @@ void RaceManager::Player::incrementLap() {
          return;
      }
  
@@ -5878,7 +6732,7 @@ index 42decd3..a574c85 100644
      u16 addMs = CourseMap::Instance()->getCheckPointEntryOffsetMs(m_checkpointId, kart->pos(),
              kart->prevPos());
  
-@@ -295,8 +311,9 @@ void RaceManager::Player::incrementLap() {
+@@ -295,8 +353,9 @@ void RaceManager::Player::incrementLap() {
  
  /// @addr{0x805347F4}
  void RaceManager::Player::endRace(const Timer &finishTime) {
@@ -6053,3 +6907,25 @@ index 7e4c5b1..aa2d565 100644
      /// @endGetters
  
  private:
+diff --git a/source/game/system/map/MapdataStartPoint.hh b/source/game/system/map/MapdataStartPoint.hh
+index c60b37f..60264fa 100644
+--- a/source/game/system/map/MapdataStartPoint.hh
++++ b/source/game/system/map/MapdataStartPoint.hh
+@@ -21,6 +21,17 @@ public:
+     void findKartStartPoint(EGG::Vector3f &pos, EGG::Vector3f &angles, u8 placement,
+             u8 playerCount);
+ 
++    // Port: battle arenas place each kart on the point tagged with its slot.
++    [[nodiscard]] const EGG::Vector3f &position() const {
++        return m_position;
++    }
++    [[nodiscard]] const EGG::Vector3f &rotation() const {
++        return m_rotation;
++    }
++    [[nodiscard]] s16 playerIndex() const {
++        return m_playerIndex;
++    }
++
+ private:
+     [[maybe_unused]] const SData *m_rawData;
+     EGG::Vector3f m_position;

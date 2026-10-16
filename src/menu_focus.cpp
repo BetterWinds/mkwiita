@@ -60,6 +60,11 @@ const char* uiFocusControlName(const MenuState& state,unsigned slot){
  case UiPage::EngineClass:return "ClassSelect2";
  case UiPage::VSMode:return "VSSelect";
  case UiPage::BattleMode:return "BattleSelect";
+ case UiPage::Rules:{
+  // Only OK runs PushButton focus clips; the radio rows show baked states.
+  if(slot+1!=state.count())return "";
+  return state.selection.mode==UiMode::Battle?"BattleSetting":"VSSetting";
+ }
  case UiPage::Character:{constexpr const char* names[]={"CharacterSelect4_0","CharacterSelect4_1","CharacterSelect4_2","CharacterSelect4_3"};return names[std::min(slot/8,3u)];}
  case UiPage::Vehicle:return state.columns()==2?"MachineSelect2_6":"MachineSelect1_6";
  case UiPage::Drift:return "PadEasy";

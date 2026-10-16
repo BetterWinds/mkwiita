@@ -23,6 +23,10 @@ public:
     void draw(Renderer& renderer,const RaceItems& items,Vec3 viewer,unsigned tick,
               const Model* playerShadow=nullptr,const C3D_Mtx* playerTransform=nullptr);
     unsigned count() const;
+    // Racers (bit per racer index) drawn as Time Trial ghosts: pale, as the
+    // see-through ghosts of retail (whole-model blending is not available).
+    uint16_t ghostMask=0;
+    static constexpr uint32_t GhostColor=0x58687800u;
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

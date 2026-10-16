@@ -1,4 +1,5 @@
 #include <mkw/race_grid.hpp>
+#include <mkw/balloon_battle.hpp>
 #include <mkw/bullet_bill.hpp>
 #include <mkw/garage.hpp>
 #include <game/system/RaceConfig.hh>
@@ -13,6 +14,7 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <queue>
 
 namespace mkw {
 namespace {
@@ -114,8 +116,17 @@ void RaceGrid::configure(Kinoko::System::RaceConfig& config,unsigned localChoice
         if(i>=count_){p.type=Kinoko::System::RaceConfig::Player::Type::None;continue;}
         // CPUs take each driver's standard kart, or standard bike (garage slot 3)
         // in the bikes-only 100cc Grand Prix.
-        const unsigned cpuVehicle=config.raceScenario().engineClass==1?3:0;
+        unsigned cpuVehicle=config.raceScenario().engineClass==1?3:0;
+        if(cpuVehicles_>=0){
+            // VS/Battle rules: a machine of the allowed kind for each CPU
+            // (garage slot order: karts 0,1,2,6,7,8; bikes 3,4,5,9,10,11).
+            constexpr unsigned Karts[6]={0,1,2,6,7,8},Bikes[6]={3,4,5,9,10,11};
+            uint32_t x=cpuSeed_^(i*2654435761u);x^=x>>16;x*=2246822519u;x^=x>>13;
+            const unsigned pick=x%12;
+            cpuVehicle=cpuVehicles_==1?Karts[pick%6]:cpuVehicles_==2?Bikes[pick%6]:pick;
+        }
         choices_[i]=i?((localDriver+i)%driverCount)*VehiclesPerDriver+cpuVehicle:localChoice;
+        if(i==1&&ghostChoice_>=0)choices_[i]=unsigned(ghostChoice_)%GarageChoices.size();
         const auto& choice=GarageChoices[choices_[i]];
         p.character=static_cast<Kinoko::Character>(choice.character);p.vehicle=static_cast<Kinoko::Vehicle>(choice.vehicle);
         p.type=i?Kinoko::System::RaceConfig::Player::Type::CPU:Kinoko::System::RaceConfig::Player::Type::Local;
@@ -124,7 +135,7 @@ void RaceGrid::configure(Kinoko::System::RaceConfig& config,unsigned localChoice
 }
 bool RaceGrid::reset(){
     using namespace Kinoko;
-    drivers_={};finished_={};laps_={};route_.clear();bulletRoute_.clear();
+    drivers_={};finished_={};laps_={};route_.clear();bulletRoute_.clear();hop_.clear();navDist_.clear();
     auto* config=System::RaceConfig::Instance();if(!config)return false;
     count_=config->raceScenario().playerCount;
     auto* kartObjects=Kart::KartObjectManager::Instance();
@@ -145,14 +156,15 @@ bool RaceGrid::reset(){
         // (race laps) stays off.
         speedParamReady_=false;lapDistance_=0;bulletRoute_.clear();
         if(!ok)route_.clear();
+        buildBattleNav();
         CpuAi::Setup setup;setup.route=nullptr;setup.count=count_;
         ai_.reset(setup);
         return true;
     }
     size_t paramSize=0;const void* params=System::ResourceManager::Instance()->getFile("kartAISpdParam.bin",&paramSize,System::ArchiveId::Core);
-    // The chosen engine class, Normal CPUs. Difficulty selection is not exposed yet.
+    // The chosen engine class and CPU level (VS rules; Normal otherwise).
     const unsigned engineClass=std::min<unsigned>(config->raceScenario().engineClass,2);
-    speedParamReady_=readCpuSpeedParam(params,paramSize,unsigned(config->raceScenario().course),engineClass,1,speedParam_);
+    speedParamReady_=readCpuSpeedParam(params,paramSize,unsigned(config->raceScenario().course),engineClass,cpuLevel_,speedParam_);
     // Distance adapter: a permitted native ENPT circuit scales checkpoint lap
     // completion. Retail uses mean CKPT circuit length; branched-path parity remains pending.
     lapDistance_=0;std::vector<bool> visited(route_.size(),false);unsigned point=0;
@@ -163,13 +175,13 @@ bool RaceGrid::reset(){
     const float routeLength=lapDistance_;
     lapDistance_=std::clamp(lapDistance_,4500.f,9000.f);
     afterStep();
-    // Retail Enemy::AI (cpu_ai.cpp): the chosen engine class, Normal CPUs (cpuMode 1).
-    CpuAi::Setup setup;setup.route=&route_;setup.count=count_;setup.engineClass=engineClass;setup.cpuMode=1;
+    // Retail Enemy::AI (cpu_ai.cpp): the chosen engine class and CPU level (cpuMode).
+    CpuAi::Setup setup;setup.route=&route_;setup.count=count_;setup.engineClass=engineClass;setup.cpuMode=cpuLevel_;
     setup.speed=speedParam_;setup.speedReady=speedParamReady_;
     size_t actionSize=0;const void* actions=System::ResourceManager::Instance()->getFile("kartAIActionParam.bin",&actionSize,System::ArchiveId::Core);
     setup.actionsReady=readCpuActionParam(actions,actionSize,setup.cpuMode,setup.actions);
     if(!setup.actionsReady)for(auto& a:setup.actions)a={50,10,70,70,80,50,0,0};
-    setup.courseLength=std::max(routeLength,1000.f);setup.humanMask=1;
+    setup.courseLength=std::max(routeLength,1000.f);setup.humanMask=ghostChoice_>=0&&count_>1?3:1;
     setup.seed=0x9e3779b9u^(unsigned(config->raceScenario().course)*2654435761u);
     ai_.reset(setup);
     return ok;
@@ -188,7 +200,8 @@ void RaceGrid::beforeStep(uint16_t bulletPlayers){
     for(unsigned j=1;j<count_;++j)leaderCompletion=std::max(leaderCompletion,manager->player(j).raceCompletion());
     // Retail Enemy::AI drives every CPU outside a Bullet (and player zero for QA).
     uint32_t aiMask=0;
-    for(unsigned i=0;i<count_;++i)if(!(bulletPlayers&(1u<<i))&&(i||driveLocal))aiMask|=1u<<i;
+    // A Time Trial ghost replays its recorded inputs (main.cpp): no AI at all.
+    for(unsigned i=0;i<count_;++i)if(!(bulletPlayers&(1u<<i))&&(i||driveLocal)&&!ghost(i))aiMask|=1u<<i;
     if(ai_.ready()){
         // CPUs run the retail stuck handler inside CpuAi; the QA autopilot keeps
         // the adapted recovery below.
@@ -199,6 +212,7 @@ void RaceGrid::beforeStep(uint16_t bulletPlayers){
         const bool bullet=(bulletPlayers&(1u<<i))!=0;
         auto& d=drivers_[i];
         if(i==0&&!bullet&&!driveLocal){if(d.bullet)objects->object(i)->move()->setKartSpeedLimit();d.bullet=false;continue;}
+        if(ghost(i))continue;
         auto* pad=System::KPadDirector::Instance()->hostController(i);
         if(battleArena_&&!bullet){battleDrive(i,racing);continue;}
         const auto& route=bullet?bulletRoute_:route_;
@@ -324,6 +338,42 @@ void RaceGrid::beforeStep(uint16_t bulletPlayers){
         pad->setInputsRawStick(buttons,unsigned(stick),7,trick?System::Trick::Up:System::Trick::None);
     }
 }
+void RaceGrid::buildBattleNav(){
+    hop_.clear();navDist_.clear();
+    const unsigned n=route_.size();
+    if(n<2||n>512)return;
+    // Arena ENPT is a roaming network (the graph retail battle CPUs drive):
+    // every authored link is a drivable lane, taken either way here.
+    std::vector<std::vector<std::pair<unsigned,float>>> links(n);
+    for(unsigned i=0;i<n;++i){const auto& p=route_.point(i);
+        for(unsigned k=0;k<p.nextCount;++k){const unsigned j=p.next[k];if(j==i)continue;
+            const float w=length(route_.point(j).position-p.position);
+            links[i].push_back({j,w});links[j].push_back({i,w});}}
+    hop_.assign(std::size_t(n)*n,uint16_t(EnemyRoute::Invalid));
+    navDist_.assign(std::size_t(n)*n,std::numeric_limits<float>::max());
+    using Entry=std::pair<float,unsigned>;
+    for(unsigned g=0;g<n;++g){
+        uint16_t* hop=&hop_[std::size_t(g)*n];float* dist=&navDist_[std::size_t(g)*n];
+        std::priority_queue<Entry,std::vector<Entry>,std::greater<Entry>> open;
+        dist[g]=0;hop[g]=uint16_t(g);open.push({0.f,g});
+        while(!open.empty()){const auto [d,u]=open.top();open.pop();if(d>dist[u])continue;
+            for(const auto& [v,w]:links[u])if(d+w<dist[v]){dist[v]=d+w;hop[v]=uint16_t(u);open.push({dist[v],v});}}
+    }
+}
+RaceGrid::NavSpot RaceGrid::navSpot(Vec3 p,unsigned avoid) const{
+    // Height counts double: arenas stack floors and ramps.
+    NavSpot best;float bestCost=std::numeric_limits<float>::max();
+    for(unsigned i=0;i<route_.size();++i){const auto& point=route_.point(i);
+        if(i==avoid)continue;
+        for(unsigned k=0;k<point.nextCount;++k){const unsigned j=point.next[k];if(j==avoid||j==i)continue;
+            const Vec3 a=point.position,b=route_.point(j).position;
+            const Vec3 at=a+(b-a)*std::clamp(projection(p,a,b),0.f,1.f),e=p-at;
+            const float cost=e.x*e.x+e.z*e.z+4.f*e.y*e.y;
+            if(cost<bestCost){bestCost=cost;best={i,j,at};}
+        }
+    }
+    return best;
+}
 void RaceGrid::battleDrive(unsigned i,bool racing){
     using namespace Kinoko;
     auto* objects=Kart::KartObjectManager::Instance();auto* manager=System::RaceManager::Instance();
@@ -333,23 +383,93 @@ void RaceGrid::battleDrive(unsigned i,bool racing){
     const Vec3 pos=native(kart->pos()),forward=native(kart->bodyFront());
     const bool respawning=kart->status().onBit(Kart::eStatus::BeforeRespawn,Kart::eStatus::InRespawn);
     d.last=pos;d.respawning=respawning;
+    if(d.detour)--d.detour;
+    if(d.ignoreTicks&&!--d.ignoreTicks)d.ignoreTarget=-1;
+    if(!d.detour)d.badNode=EnemyRoute::Invalid;
     auto away=[&](unsigned j){return objects->object(j)->status().onBit(Kart::eStatus::BeforeRespawn,Kart::eStatus::InRespawn);};
     auto flat=[&](Vec3 p){const float dx=p.x-pos.x,dz=p.z-pos.z;return dx*dx+dz*dz;};
-    // Chase: the nearest enemy (the other team) within 5000 units; a target is
-    // kept until it is 7000 away, so CPUs commit to a pursuit.
-    constexpr float Chase=5000.f,Keep=7000.f;
-    if(d.target>=0&&(unsigned(d.target)>=count_||away(unsigned(d.target))||flat(native(objects->object(unsigned(d.target))->pos()))>Keep*Keep))d.target=-1;
+    // Height counts double: arenas stack floors, and a box overhead is far away.
+    auto span=[&](Vec3 p){const float dy=(p.y-pos.y)*2.f;return flat(p)+dy*dy;};
+    const auto& g=battleGoals_;
+    const bool armed=(g.holding>>i)&1u;
+    // Retail battle CPUs hunt item boxes empty-handed and enemies when armed;
+    // Coin Runners CPUs collect coins between fights. Level widens the hunt.
+    static constexpr float ChaseByLevel[]={3000.f,5000.f,9000.f},LeadByLevel[]={10.f,25.f,45.f},SteerByLevel[]={.8f,1.f,1.25f};
+    const float Chase=ChaseByLevel[cpuLevel_],Keep=Chase*1.4f;
+    // An enemy that just lost a balloon can't lose another: Balloon CPUs look
+    // past it, and past one this kart just failed to reach.
+    auto huntable=[&](unsigned j){return BalloonBattle::team(j)!=BalloonBattle::team(i)&&!away(j)&&int(j)!=d.ignoreTarget&&(g.coinRunners||!((g.safe>>j)&1u));};
+    if(d.target>=0&&(unsigned(d.target)>=count_||!huntable(unsigned(d.target))||flat(native(objects->object(unsigned(d.target))->pos()))>Keep*Keep))d.target=-1;
     if(d.target<0){
         float best=Chase*Chase;
         for(unsigned j=0;j<count_;++j){
-            if(j%2==i%2||away(j))continue;
-            const float dist=flat(native(objects->object(j)->pos()));
+            if(!huntable(j))continue;
+            // Coin Runners: a rich enemy is worth a longer drive.
+            const float dist=flat(native(objects->object(j)->pos()))/(g.coinRunners?1.f+g.scores[j]*.1f:1.f);
             if(dist<best){best=dist;d.target=int(j);}
         }
     }
-    Vec3 goal=pos+forward*1000.f;
-    if(d.target>=0)goal=native(objects->object(unsigned(d.target))->pos());
-    else if(route_.size()){
+    auto ignored=[&](Vec3 p){const Vec3 e=p-d.ignoreAt;return d.ignoreTicks&&dot(e,e)<500.f*500.f;};
+    auto nearest=[&](const Vec3* points,unsigned n,float limit){int best=-1;float bestDist=limit*limit;
+        for(unsigned k=0;k<n;++k){if(ignored(points[k]))continue;const float dist=span(points[k]);if(dist<bestDist){bestDist=dist;best=int(k);}}return best;};
+    const int box=nearest(g.boxes,g.boxCount,1e6f),coin=nearest(g.coins,g.coinCount,1e6f);
+    const int nearCoin=nearest(g.coins,g.coinCount,4000.f);
+    auto lead=[&](unsigned j){
+        // Aim where the enemy will be when this kart gets there.
+        const auto* m=objects->object(j)->move();const Vec3 at=native(objects->object(j)->pos());
+        const float ticks=std::min(std::sqrt(flat(at))/std::max(std::fabs(kart->move()->speed()),30.f),LeadByLevel[cpuLevel_]);
+        return at+native(m->vel1Dir())*(m->speed()*ticks);
+    };
+    bool hasGoal=true,pickup=true;Vec3 goal=pos+forward*1000.f;
+    auto hunt=[&]{pickup=false;return lead(unsigned(d.target));};
+    if(g.coinRunners){
+        if(nearCoin>=0&&!(armed&&d.target>=0&&flat(native(objects->object(unsigned(d.target))->pos()))<1500.f*1500.f))goal=g.coins[nearCoin];
+        else if(armed&&d.target>=0)goal=hunt();
+        else if(!armed&&box>=0&&(coin<0||span(g.boxes[box])<span(g.coins[coin])))goal=g.boxes[box];
+        else if(coin>=0)goal=g.coins[coin];
+        else if(d.target>=0)goal=hunt();
+        else hasGoal=false;
+    }else{
+        if(armed&&d.target>=0)goal=hunt();
+        else if(!armed&&box>=0)goal=g.boxes[box];
+        else if(d.target>=0)goal=hunt();
+        else hasGoal=false;
+    }
+    // Where to steer: the goal itself when it is close on the same level (or
+    // on this kart's own lane), else the next node of the shortest path over
+    // the route graph, so a wall between the two is driven around.
+    Vec3 steerAt=goal;bool direct=true;unsigned steerNode=EnemyRoute::Invalid;
+    auto dropPath=[&]{d.navNode=d.navLast=EnemyRoute::Invalid;d.navFinal=false;};
+    if(hasGoal){
+        d.segment=EnemyRoute::Invalid; // re-found on the way back to roaming
+        const bool close=flat(goal)<1500.f*1500.f&&std::fabs(goal.y-pos.y)<300.f;
+        if(hop_.empty()||(!d.detour&&close)||respawning)dropPath();
+        else{
+            const NavSpot to=navSpot(goal);
+            if(to.a<route_.size()&&((d.navLast!=to.a&&d.navLast!=to.b)||(!d.navFinal&&d.navNode>=route_.size()))){
+                dropPath();
+                const NavSpot from=navSpot(pos,d.badNode);
+                if(from.a>=route_.size()||(from.a==to.a&&from.b==to.b)||(from.a==to.b&&from.b==to.a)){d.navFinal=true;d.navLast=to.a;}
+                else{
+                    // The lane ends (this kart's, then the goal's) with the shortest way through.
+                    float best=std::numeric_limits<float>::max();
+                    for(const unsigned e:{from.a,from.b})for(const unsigned f:{to.a,to.b}){
+                        const float cost=length(route_.point(e).position-from.at)+navDist(e,f)+length(goal-route_.point(f).position);
+                        if(cost<best){best=cost;d.navNode=e;d.navLast=f;}
+                    }
+                }
+            }
+            // Within reach of a node: on to the next one, or past the last
+            // one straight at the goal along its lane.
+            constexpr float Reach=800.f;
+            for(unsigned guard=0;guard<4&&!d.navFinal&&d.navNode<route_.size()&&flat(route_.point(d.navNode).position)<Reach*Reach;++guard){
+                if(d.navNode==d.navLast)d.navFinal=true;else d.navNode=navHop(d.navNode,d.navLast);
+            }
+            if(!d.navFinal&&d.navNode<route_.size()){steerAt=route_.point(d.navNode).position;steerNode=d.navNode;direct=false;}
+            else if(!d.navFinal)dropPath();
+        }
+    }else if(route_.size()){
+        dropPath();
         // Roam the arena's route graph, varying the branch at every junction.
         if(d.segment>=route_.size()||d.wander>=route_.size()||respawning){
             d.segment=route_.nearest(pos,forward,i);
@@ -362,17 +482,46 @@ void RaceGrid::battleDrive(unsigned i,bool racing){
                 ++d.routeTicks;d.segment=d.wander;
                 d.wander=route_.successor(d.segment,i*7+d.routeTicks*3);
             }
-            if(d.wander<route_.size())goal=route_.point(d.wander).position;
+            if(d.wander<route_.size())steerAt=route_.point(d.wander).position;
         }
+        direct=false;
     }
-    float steer=steeringTo(forward,{goal.x-pos.x,0.f,goal.z-pos.z});
+    float steer=std::clamp(steeringTo(forward,{steerAt.x-pos.x,0.f,steerAt.z-pos.z})*SteerByLevel[cpuLevel_],-1.f,1.f);
     uint16_t buttons=0;
     if(racing&&!respawning){
         buttons=1;
-        const float speed=std::fabs(kart->move()->speed());
-        if(speed<3.f){if(++d.stuck>120){d.reverse=60;d.stuck=0;d.segment=EnemyRoute::Invalid;}}else d.stuck=0;
-        if(d.reverse){--d.reverse;buttons=2;steer=-steer;}
-    }else if(!respawning&&manager->stage()==System::RaceManager::Stage::Countdown&&manager->getCountdownTimer()<24)buttons=1;
+        // Progress over one-second windows: barely moved, or most of it
+        // pressed against a wall without getting far, is stuck (pinned by a
+        // wall, a kart or an object), whatever the speedometer says.
+        if(!d.window)d.anchor=pos;
+        if(kart->status().onBit(Kart::eStatus::WallCollision,Kart::eStatus::Wall3Collision))++d.wallTicks;
+        if(++d.window>=60){
+            const float moved=std::sqrt(flat(d.anchor));
+            const bool pinned=moved<250.f,walled=d.wallTicks>=40&&moved<2000.f;
+            d.stuckWindows=pinned||walled?d.stuckWindows+1:0;
+            if(walled||d.stuckWindows>=2){
+                // Back out, then take the graph's way around for three
+                // seconds, off the node this approach was heading for, and
+                // give up on the goal for five.
+                d.reverse=pinned||d.stuckWindows>=2?50:20;d.stuckWindows=0;
+                d.detour=180;
+                d.badNode=steerNode;dropPath();
+                d.ignoreTicks=300;
+                d.ignoreAt={1e9f,1e9f,1e9f};
+                if(hasGoal&&!pickup){d.ignoreTarget=d.target;d.target=-1;}
+                else if(hasGoal)d.ignoreAt=goal;
+                else d.segment=EnemyRoute::Invalid;
+            }
+            d.window=0;d.wallTicks=0;
+        }
+        // A goal just behind sits inside the turning circle: back into it
+        // instead of orbiting it at full lock.
+        const bool backUp=hasGoal&&pickup&&direct&&flat(goal)<900.f*900.f&&(goal.x-pos.x)*forward.x+(goal.z-pos.z)*forward.z<0.f;
+        if(d.reverse||backUp){if(d.reverse)--d.reverse;buttons=2;steer=-steer;}
+    }else{
+        d.window=d.wallTicks=d.stuckWindows=d.reverse=0;
+        if(!respawning&&manager->stage()==System::RaceManager::Stage::Countdown&&manager->getCountdownTimer()<24)buttons=1;
+    }
     const int stick=std::clamp(int(std::lround(steer*7.f))+7,0,14);
     pad->setInputsRawStick(buttons,unsigned(stick),7,System::Trick::None);
 }

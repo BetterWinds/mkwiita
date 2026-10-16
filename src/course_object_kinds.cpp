@@ -23,6 +23,7 @@
 #include <game/field/obj/ObjectKoopaBall.hh>
 #include <game/field/obj/ObjectTruckWagon.hh>
 #include <game/field/obj/ObjectTwistedWay.hh>
+#include <game/field/obj/ObjectVeniceHasi.hh>
 #include <game/field/obj/ObjectKuribo.hh>
 #include <game/field/obj/ObjectPakkunF.hh>
 #include <game/field/obj/ObjectPenguin.hh>
@@ -114,6 +115,14 @@ void drawCoin(ObjectDraw& d,Visual& v){
     Mtx_RotateY(&m,float(d.tick)*.06f,true);
     d.submit(v.main.model,m,animAt(v.main,float(d.tick)));
     if(v.shadow.model)d.shadow(v.shadow.model,v.placement);
+}
+// Delfino Pier's drawbridge (Kinoko ObjectVeniceHasi): lowered by its live
+// transform, its CHR0 played once from the start frame and then held.
+void drawVeniceHasi(ObjectDraw& d,Visual& v){
+    const auto& h=*static_cast<const K::Field::ObjectVeniceHasi*>(v.object);
+    const C3D_Mtx m=liveMatrix(h);
+    d.submit(v.main.model,m,animAt(v.main,h.animFrame()));
+    if(v.shadow.model)d.shadow(v.shadow.model,m);
 }
 void drawKuribo(ObjectDraw& d,Visual& v){
     const auto& k=*static_cast<const K::Field::ObjectKuribo*>(v.object);
@@ -784,6 +793,13 @@ bool classifyObject(Visual& v,const ObjectAssets& assets,int course){
     }else if(id==ObjectId::VolcanoPiece&&live){
         char name[24];std::snprintf(name,sizeof name,"VolcanoPiece%d",int(int16_t(v.geo->setting(0))));
         v.main=find(assets,v.resource,name,name);
+    }else if(id==ObjectId::BBlock&&live){
+        // Block Plaza's blocks shake and drop as VolcanoPieces (bblock::LoadModels
+        // names each model bblockN); blocks without their own keep the archive's.
+        char name[24];std::snprintf(name,sizeof name,"bblock%d",int(int16_t(v.geo->setting(0))));
+        if(auto t=find(assets,v.resource,name,name);t.model)v.main=t;
+    }else if(id==ObjectId::VeniceHasi&&live){
+        v.present=drawVeniceHasi;
     }else if(id==ObjectId::VolcanoRock&&live){
         const char* name=v.geo->setting(0)?"VolcanoRock2":"VolcanoRock1";
         v.main=find(assets,v.resource,name,name);

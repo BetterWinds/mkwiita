@@ -1,4 +1,5 @@
 #include "mkw/race_items.hpp"
+#include "mkw/balloon_battle.hpp"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -36,12 +37,12 @@ int RaceItems::blueTarget(const ItemActor& a)const{
 int RaceItems::redTarget(const ItemActor& a,bool ranked)const{
     // 298d88: nearest XZ within 4000, forward cone (sin=.95), signed
     // floor-normal height [-1500,1000], source rank and protection filters.
-    // Battle: the nearest enemy in the cone (team i%2), race ranks ignored.
+    // Battle: the nearest enemy in the cone, race ranks ignored.
     int result=-1;float best=16000000.f;unsigned ownerRank=rank(unsigned(a.owner));
     if(battleOdds_)ranked=false;
     for(unsigned i=0;i<count_;++i){const auto& r=racers_[i];unsigned candidateRank=battleOdds_?1:rank(i);
         if(int(i)==a.owner||r.finished||missing(r))continue;
-        if(battleOdds_&&a.owner>=0&&i%2==unsigned(a.owner)%2)continue;
+        if(battleOdds_&&a.owner>=0&&BalloonBattle::team(i)==BalloonBattle::team(unsigned(a.owner)))continue;
         if(ranked&&ownerRank<=candidateRank){if(ownerRank!=1||candidateRank>3||(candidateRank==1&&count_>1))continue;}
         if(candidateRank!=1&&(r.shellTargetProtected||r.controlLocked||r.inCannon||invincible(i)||hud_[i].mega))continue;
         Vec3 d=r.position-a.position;float xz=shellXZ2(d);if(xz>best)continue;
