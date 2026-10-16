@@ -13,28 +13,36 @@ It isn't an emulator. The game runs natively on the Vita:
 This repository contains **no Nintendo files**. You build the game files
 yourself, on your own computer, from your own Mario Kart Wii disc.
 
-> **Status: playable, work in progress.** Menus, Grand Prix (including
-> Mirror and the award ceremony), VS and Time Trials run on real hardware,
-> with sound, in 16:9. Battle is playable and still being worked on. Races run
-> at 45-60 FPS (or a locked 30, see [Settings](#settings)). The first time a
-> new material appears the game pauses to compile its shader; those are
-> cached, so later launches are smooth.
+> **Status: playable.** Grand Prix (with Mirror and the award ceremony), VS,
+> Team VS, Time Trials and Battle all run on real hardware, with sound, in
+> 16:9. Make a license and unlock characters, vehicles, cups and Mirror as on
+> the Wii, or unlock everything in [Settings](#settings).
+>
+> **Frame rate by preset:** a steady **60 FPS** in Performance, **45-60 FPS**
+> in Default, and sharper graphics at a locked **30 FPS** in Quality.
+>
+> The first time a new material appears, the game pauses to compile its
+> shader. Shaders are cached, so later launches are smooth.
 
 ## What works
 
 | | |
 |---|---|
-| Menus, Grand Prix (50/100/150cc and Mirror), VS, Time Trials | ✅ |
+| Menus, Grand Prix (50/100/150cc and Mirror), VS, Team VS, Time Trials | ✅ |
 | Grand Prix award ceremony and final standings | ✅ |
-| All 24 drivers and 36 vehicles | ✅ |
+| All 24 drivers and their karts and bikes | ✅ |
+| Licenses: four named save slots, each with its own unlocks, best times and ghosts | ✅ |
+| Unlocks as on the Wii: characters, vehicles, cups, Mirror and the karts/bikes switch | ✅ |
+| Expert staff ghost unlock times (read from your disc), counting toward unlocks | ✅ |
+| Settings screen from the LiveArea: presets, resolution, graphics, Unlock Everything | ✅ |
 | Items, CPU racers, results and standings | ✅ |
 | Music and sound effects | ✅ |
 | Wii-style course map, race timer and incoming-item warning | ✅ |
-| Best times saved | ✅ |
 | Widescreen (16:9) | ✅ |
-| Battle: team Balloon Battle and Coin Runners on all ten arenas | ⏳ Playable, in progress |
-| Steady 60 FPS | ⏳ 45-60 FPS in races; performance work ongoing |
-| Team VS, online | ❌ Not yet |
+| Battle: team Balloon Battle and Coin Runners on all ten arenas | ✅ |
+| Steady 60 FPS | ✅ With the Performance preset (45-60 FPS in Default) |
+| Racing or watching the staff ghosts | ⏳ In progress (their times already count) |
+| Online | ❌ Not yet |
 
 ## What you need
 
@@ -58,7 +66,12 @@ yourself, on your own computer, from your own Mario Kart Wii disc.
    *Building the VPK yourself?* Use **`Build MKW Vita.bat`** instead: it needs VitaSDK and makes both the game files and `build\vita\mkw.vpk`.
 3. Install the VPK with VitaShell.
 4. Copy the **contents** of `build\vita\data\mkw\` to `ux0:data/mkw/` on the Vita, over USB or FTP in VitaShell.
-5. Launch **Mario Kart Wii** from the LiveArea.
+5. Launch **Mario Kart Wii** from the LiveArea and pick an empty license slot to make your license: the
+   Vita's keyboard asks for its name.
+
+**Updating from 1.2.0:** build the game files again from the 1.3.0 source and copy them over (the VPK and the
+game files must come from the same release). Your best times and ghosts move into the first license you
+create.
 
 **Please don't share the game files** (`data/mkw`): they contain Nintendo's
 game data. The VPK itself is only the program; it holds no game data.
@@ -78,32 +91,49 @@ game data. The VPK itself is only the program; it holds no game data.
 | START | Pause |
 | SELECT | Speedometer on/off |
 
+## Progression
+
+Each license unlocks what Mario Kart Wii unlocks, the same way (full list of conditions:
+[IGN's Mario Kart Wii unlockables](https://www.ign.com/wikis/mario-kart-wii/Unlockables)):
+
+- **Cups:** Star after trophies in Mushroom and Flower, Special after Star; Leaf after Shell and Banana,
+  Lightning after Leaf (in each engine class).
+- **Mirror:** win every 150cc cup. **Bikes in 50cc / karts in 100cc:** a trophy in every cup of that class.
+- **Characters and vehicles:** cup wins, 1-star ranks, Time Trial courses played and expert staff ghosts
+  unlocked, as listed in Mario Kart Wii's unlock table. A Time Trial at or under a course's expert unlock time
+  (from your disc) unlocks its expert ghost.
+
+New unlocks are announced when you're back in the menus. Locked choices are dimmed and say "Locked".
+Don't want to unlock things? Turn on **Unlock Everything** in Settings: it opens everything for every license,
+and turning it off again brings back each license's own progress.
+
 ## Settings
 
-Optional: create `ux0:data/mkw/quality.txt` with one `name=value` per line.
-The values in use are written to `ux0:data/mkw/vita.log` at start-up.
+Tap **Settings** under Start on the game's LiveArea (close the game first). Up/down choose, left/right or
+Cross change, then **Save and Start** or **Save and Exit**; Circle leaves without saving.
 
-| Setting | Default | |
-|---|---|---|
-| `framerate` | `60` | `30` locks races to a steady 30 FPS |
-| `resolution` | `1.5` | Internal resolution, `1` to `2`. `2` is sharper (848x480) but slower; use it with `framerate=30` |
-| `map` | `1` | `0` shows the simple racing-line map instead of the Wii-style map |
-| `shadowVolumes` | `1` | `0` turns off kart and object shadows |
-| `bloomBlurRounds` | `2` | Glow: `1` cheaper, `0` off |
-| `particleBudget` | no limit | Fewer smoke and spark particles, e.g. `96` |
+| Setting | |
+|---|---|
+| Preset | **Performance** (steady 60 FPS: shadows, bloom and extra particles off), **Default** (45-60 FPS, everything on) or **Quality** (2x resolution, every effect, locked 30 FPS). Shows **Custom** when you change something yourself |
+| Resolution | Internal resolution, `1` to `2` (default `1.5`); Cross types a value. The game restarts to apply it |
+| Framerate | `60` or a steady `30` |
+| Shadows, Bloom, Particles | Kart and object shadows; glow (off/low/high); fewer smoke and spark particles |
+| Object detail | How far objects keep their full detail |
+| Minimap | The Wii-style map or the simple racing-line map |
+| Unlock Everything | Every character, vehicle, cup and Mirror, for every license |
+| License 1-4 | Delete a license (press Cross twice) |
+| Reset to Defaults | The default graphics settings |
 
-For example, the sharp look at a locked 30 FPS:
-
-```
-framerate=30
-resolution=2
-```
+The graphics settings are saved in `ux0:data/mkw/quality.txt` (one `name=value` per line), which you can
+still edit by hand. The values in use are written to `ux0:data/mkw/vita.log` at start-up.
 
 ## Troubleshooting
 
 - **Black screen after the vitaGL logo:** `libshacccg.suprx` is missing (see above), or the game files aren't in `ux0:data/mkw/`.
 - **Short freezes on the first launch:** shaders compiling. They're saved to `ux0:data/mkw/shaders/` and loaded at start-up after that.
 - **Something looks wrong after an update:** delete `ux0:data/mkw/shaders/` to rebuild the shader cache.
+- **Settings button does nothing:** close the game first (hold the LiveArea page and pull it away), then tap it.
+- **Saves:** licenses and unlocks are in `ux0:data/mkw/save.bin`, ghosts in `ux0:data/mkw/ghosts/`.
 - **Logs:** `ux0:data/mkw/vita.log` (graphics, frame rate) and `ux0:data/mkw/runtime.log` (game). Attach both when reporting a problem.
 - **Problems building assets:** Try to use python 3.14.5 and make sure you have Visual C++ 14.0 or later.
 

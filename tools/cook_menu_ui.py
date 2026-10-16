@@ -19,6 +19,8 @@ UI=ROOT/'assets/menu-ui/MenuSingle'
 # include/mkw/menu_ui.hpp): each value's "Races: N"/"Wins: N" label is baked.
 UI_RACE_COUNTS=(1,2,3,4,5,6,7,8,16,32)
 UI_BATTLE_WINS=(1,2,3,4,5)
+# Characters a license name may use (main.cpp's keyboard keeps only these).
+LICENSE_NAME_CHARS="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.-!?'"
 records={}; evidence={}; panel_records={}; pane_records={}; node_records={}; movie_records=[]; glow_records=[]; focus_records=[]; panel_layer_records={}; border_records=[]; border_slices=[]; runtime_palette=[]
 def source(p):
  key=p.relative_to(ROOT).as_posix()
@@ -491,7 +493,7 @@ def main():
  labels+=course_names+[c['name'] for c in garage['choices']]+list('0123456789:.-/')
  labels+=[text for values in help_text.values() for text in values]
  labels+=re.findall(r'\"([^\"]+)\"',(ROOT/'include/mkw/menu_ui.hpp').read_text())
- labels+=['Characters','Vehicles','Engine Classes','Cups','Courses','Select License','New','License','License 1','License 2','License 3','License 4','50cc','100cc','150cc','Mirror','Solo Race','Team Race','Balloon Battle','Coin Runners','Wii Stages','Retro Stages','Select Stage','Speed','Weight','Acceleration','Handling','Drift','Off-Road','Mini-Turbo','Karts Only','Bikes Only','Karts and Bikes','Press the A Button','OK','Back','Options','Mario Kart Channel','Grand Prix Race','Time Trial','VS Settings','Battle Settings','Unsupported race configuration','Create a license','Attach the Wii Remote wrist strap.','Press A to continue.','Please use the wrist strap.','A: Select','1 Player','2 Players','3 Players','4 Players','Race This Ghost','Watch the Replay','Solo Time Trials','Player','Players','Booster Seat','Flame Runner','Jet Bubble']
+ labels+=['Characters','Vehicles','Engine Classes','Cups','Courses','Select License','New','License','License 1','License 2','License 3','License 4','50cc','100cc','150cc','Mirror','Solo Race','Team Race','Balloon Battle','Coin Runners','Wii Stages','Retro Stages','Select Stage','Speed','Weight','Acceleration','Handling','Drift','Off-Road','Mini-Turbo','Karts Only','Bikes Only','Karts and Bikes','Press the A Button','OK','Back','Options','Mario Kart Channel','Grand Prix Race','Time Trial','VS Settings','Battle Settings','Unsupported race configuration','Create a license','Attach the Wii Remote wrist strap.','Press A to continue.','Please use the wrist strap.','A: Select','1 Player','2 Players','3 Players','4 Players','Race This Ghost','Watch the Replay','Solo Time Trials','Player','Players','Booster Seat','Flame Runner','Jet Bubble','Locked','Unlocked!']
  labels=[x for x in dict.fromkeys(labels) if x and not x.startswith('mkw/')]
  # Preserve each source text pane's TEV mapping. Bake only strings used by
  # that control, with identical images sharing the same native texture.
@@ -516,7 +518,8 @@ def main():
   'license':['NEW','New','License','License 1','License 2','License 3','License 4','50cc','100cc','150cc','Mirror'],
   'option':['Settings'],'license_edit':['License Settings'],
   'drift_help':['Help'],
-  'license_top_empty':['NEW'],'license_bottom_empty':['NEW'],
+  # License names are set per character (Composer::chars), from the keyboard's allowed set.
+  'license_top_empty':['NEW']+list(LICENSE_NAME_CHARS),'license_bottom_empty':['NEW']+list(LICENSE_NAME_CHARS),
   'character_name':character_labels,'vehicle_name':vehicle_labels,
   'vehicle_ability':['Speed','Weight','Acceleration','Handling','Drift','Off-Road','Mini-Turbo'],
   'drift':['Automatic','Manual'],'cup':['Mushroom Cup','Flower Cup','Star Cup','Special Cup','Shell Cup','Banana Cup','Leaf Cup','Lightning Cup','Wii Stages','Retro Stages'], 'character':[], 'vehicle':[],

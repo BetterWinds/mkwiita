@@ -70,6 +70,12 @@ class MenuState {
 public:
  UiPage page=UiPage::Strap;UiSelection selection{};
  unsigned cursor=0,age=0,focusAge=0;bool unavailable=false;
+ // The choice is not unlocked for this license (the notice says "Locked").
+ bool locked=false;
+ // An empty license slot was chosen: main asks for its name, then creates it.
+ bool nameRequest=false;
+ // An "Unlocked!" notice over the page (a Progress unlockable, -1 none): A or B closes it.
+ int unlockNotice=-1;
  // Results is the retail VS end-of-race menu (VSRaceEnd): Next Race / Quit
  // Game, or only Next after the final race of a VS set (IsFinalRace).
  bool finalRace=false;

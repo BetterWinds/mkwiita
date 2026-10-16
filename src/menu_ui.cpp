@@ -6,6 +6,7 @@
 #include <mkw/menu_transition.hpp>
 #include <mkw/menu_index.hpp>
 #include <mkw/menu_text_motion.hpp>
+#include <mkw/progress.hpp>
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -14,6 +15,8 @@
 namespace mkw {
 namespace {
 constexpr float XScale=display::MenuScaleX,YScale=display::MenuScaleY;
+// Choices the license has not unlocked yet are drawn dimmed.
+constexpr uint32_t LockedTint=0x505050ffu;
 constexpr const char* CupNames[]={"Mushroom Cup","Flower Cup","Star Cup","Special Cup","Shell Cup","Banana Cup","Leaf Cup","Lightning Cup"};
 constexpr const char* CourseNames[]={"Luigi Circuit","Moo Moo Meadows","Mushroom Gorge","Toad's Factory","Mario Circuit","Coconut Mall","DK Summit","Wario's Gold Mine","Daisy Circuit","Koopa Cape","Maple Treeway","Grumble Volcano","Dry Dry Ruins","Moonview Highway","Bowser's Castle","Rainbow Road","GCN Peach Beach","DS Yoshi Falls","SNES Ghost Valley 2","N64 Mario Raceway","N64 Sherbet Land","GBA Shy Guy Beach","DS Delfino Square","GCN Waluigi Stadium","DS Desert Hills","GBA Bowser Castle 3","N64 DK's Jungle Parkway","GCN Mario Circuit","SNES Mario Circuit 3","DS Peach Gardens","GCN DK Mountain","N64 Bowser's Castle"};
 struct Pose {
@@ -241,12 +244,13 @@ public:
  void chars(const char* text,const char* base,Pose p={},uint32_t tint=0xffffffff,const char* name="text"){
   const auto* r=pane(base,name);if(!r)return;
   const auto& cell=UiFontCells[0];const float scale=r->fontW>0?r->fontW/cell[0]:r->h/cell[1];
-  std::array<unsigned,32> glyph{};unsigned n=0;float total=0;
+  std::array<unsigned,32> glyph{};std::array<float,32> advance{};unsigned n=0;float total=0;
   for(const char* c=text;*c&&n<glyph.size();++c){const char one[2]{*c,0};
-   const unsigned i=lookup().find(one,true,r->font,r->textStyle);glyph[n++]=i;
-   if(i<std::size(UiSprites))total+=UiSprites[i].w*scale;}
+   const unsigned i=lookup().find(one,true,r->font,r->textStyle);glyph[n]=i;
+   // A space has no glyph to bake: it only moves the next character along.
+   advance[n]=i<std::size(UiSprites)?UiSprites[i].w*scale:*c==' '?cell[0]*scale*.4f:0;total+=advance[n++];}
   float x=r->x+std::max(0.f,r->w-total)*(r->textAlign==0?0:r->textAlign==2?1:.5f);
-  for(unsigned k=0;k<n;++k){if(glyph[k]>=std::size(UiSprites))continue;
+  for(unsigned k=0;k<n;++k){if(glyph[k]>=std::size(UiSprites)){x+=advance[k];continue;}
    UiPaneInfo one=*r;one.x=x;one.w=UiSprites[glyph[k]].w*scale;one.textAlign=0;
    textSprite(glyph[k],one,p,tint);x+=one.w;}
  }
@@ -299,7 +303,14 @@ public:
   Pose back=control("Back","ButtonBack");panel("back_free",back);inPane("button_back","back_free","text",back);
   if(*description)text(description,"footer_help",control("MenuObiInstructionText","MenuObiInstructionText"),0xffffffff);
  }
- void notice(){if(!state.unavailable)return;panel("button_select",{0,-12,.95f,1.35f});label("Not available",0,-20,400,37);}
+ void unlocked(){
+  if(state.unlockNotice<0)return;const unsigned i=unsigned(state.unlockNotice);
+  const char* cls=Progress::unlockableClass(i);
+  panel("button_select",{0,-12,1.1f,cls?2.6f:2.f});label("Unlocked!",0,cls?-62:-52,400,37,0xffe040ffu);
+  label(Progress::unlockableName(i),0,cls?-22:-12,400,37);if(cls)label(cls,0,18,400,37);
+ }
+ void notice(){if(!state.unavailable)return;panel("button_select",{0,-12,.95f,1.35f});label(state.locked?"Locked":"Not available",0,-20,400,37);}
+ void dim(std::size_t from){for(auto i=from;i<out.size();++i)out[i].tint=LockedTint;}
 };
 }
 std::vector<UiQuad> composeMenu(const MenuState& state,const UiRaceView& race){std::vector<UiQuad> out;composeMenu(state,race,out);return out;}
@@ -349,7 +360,9 @@ static void composeMenuImpl(const MenuState& s,const UiRaceView& race,std::vecto
   }break;
  case UiPage::License:{
   c.chrome("Select License");
-  for(unsigned i=0;i<4;++i){char name[32];std::snprintf(name,sizeof name,"License%u",i);Pose p=control(i<2?"LicenseSelectT":"LicenseSelectB",name,i);auto base=c.buttonState(i<2?"license_top_empty":"license_bottom_empty",i);c.panel(base.c_str(),p);c.text("NEW",base.c_str(),p,0xffffffff,"new");if(i==s.cursor)c.glow(i<2?"license_top_empty":"license_bottom_empty",p);
+  for(unsigned i=0;i<4;++i){char name[32];std::snprintf(name,sizeof name,"License%u",i);Pose p=control(i<2?"LicenseSelectT":"LicenseSelectB",name,i);auto base=c.buttonState(i<2?"license_top_empty":"license_bottom_empty",i);c.panel(base.c_str(),p);
+   // A used slot shows its license's name, set a character at a time.
+   if(const auto& l=progress().license[i];l.used)c.chars(l.name,base.c_str(),p,0xffffffff,"new");else c.text("NEW",base.c_str(),p,0xffffffff,"new");if(i==s.cursor)c.glow(i<2?"license_top_empty":"license_bottom_empty",p);
   }
   Pose option=control("LicenseSelectS","Option");c.panel("option_free",option);c.text("Settings","option_free",option);
   break;
@@ -379,7 +392,7 @@ static void composeMenuImpl(const MenuState& s,const UiRaceView& race,std::vecto
  }
  case UiPage::EngineClass:{
   const char* names[]={"50cc","100cc","150cc","Mirror"};const char* variants[]={"Button50cc","Button100cc","Button150cc","ButtonMirror"};
-  for(unsigned i=0;i<4;++i){Pose p=control("ClassSelect2",variants[i],i);auto base=c.buttonState("class",i);c.movieButton(base.c_str(),p);c.movie("class_movie_",s.engineClassMovie(i),base.c_str(),"black_base",p);c.movieOverlay(base.c_str(),p);c.icon("class_",i,base.c_str(),"kinoko_set_p",p);char caption[64];std::snprintf(caption,sizeof caption,"%s\n%s",names[i],i==0&&!s.selection.mixedEngineTypes?"Karts Only":i==1&&!s.selection.mixedEngineTypes?"Bikes Only":"Karts and Bikes");c.text(caption,base.c_str(),p);if(s.cursor==i)c.glow("class",p,caption);}
+  for(unsigned i=0;i<4;++i){Pose p=control("ClassSelect2",variants[i],i);auto base=c.buttonState("class",i);c.movieButton(base.c_str(),p);c.movie("class_movie_",s.engineClassMovie(i),base.c_str(),"black_base",p);c.movieOverlay(base.c_str(),p);{const auto first=q.size();c.icon("class_",i,base.c_str(),"kinoko_set_p",p);if(i==3&&!progress().mirror())c.dim(first);}char caption[64];std::snprintf(caption,sizeof caption,"%s\n%s",names[i],i==0&&!s.selection.mixedEngineTypes?"Karts Only":i==1&&!s.selection.mixedEngineTypes?"Bikes Only":"Karts and Bikes");c.text(caption,base.c_str(),p);if(s.cursor==i)c.glow("class",p,caption);}
   {Pose toggle=control("ClassChange","ClassChange");char key[48];
    for(unsigned blink=0;blink<(preload?2u:1u);++blink){const unsigned frame=((s.age/30)+blink)%2;
     std::snprintf(key,sizeof key,"button_switch_shadow_%u",frame);c.namedText(key,"class_switch","close_sha",toggle);
@@ -388,7 +401,7 @@ static void composeMenuImpl(const MenuState& s,const UiRaceView& race,std::vecto
  }
  case UiPage::Character:{
   Pose parent=control("CharacterSelectNULL","CharacterSelectNULL");constexpr unsigned within[]={0,1,4,6,2,3,5,7};
-  for(unsigned i=0;i<s.count();++i){char group[48];std::snprintf(group,sizeof group,"CharacterSelect4_%u",i<24?i/8:3);Pose p=child(parent,numbered(group,i<24?within[i%8]:i-24));p.focusSlot=i;c.button("character",i,p);c.icon("driver_",s.characterDriver(i),c.buttonState("character",i).c_str(),"chara",p);if(s.cursor==i)c.glow("character",p,nullptr,s.characterDriver(i));}
+  for(unsigned i=0;i<s.count();++i){char group[48];std::snprintf(group,sizeof group,"CharacterSelect4_%u",i<24?i/8:3);Pose p=child(parent,numbered(group,i<24?within[i%8]:i-24));p.focusSlot=i;c.button("character",i,p);{const auto first=q.size();c.icon("driver_",s.characterDriver(i),c.buttonState("character",i).c_str(),"chara",p);if(!progress().character(s.characterDriver(i)))c.dim(first);}if(s.cursor==i)c.glow("character",p,nullptr,s.characterDriver(i));}
   Pose name=control("CharacterSelectName","CharacterSelectName");c.panel("character_name",name);c.text(UiCharacters[s.characterDriver(s.cursor)].name,"character_name",name,0xffffffff,"mii_name");c.chrome("Characters");break;
  }
  case UiPage::Vehicle:{
@@ -404,7 +417,7 @@ static void composeMenuImpl(const MenuState& s,const UiRaceView& race,std::vecto
    for(unsigned layer=0;layer<3;++layer){
     const auto first=q.size();c.inPane(key,base.c_str(),layers[layer],p);
     if(q.size()>first){auto& icon=q.back();icon.vehicleIcon=s.vehicleChoice(i);
-     icon.vehicleColor0=0;icon.vehicleColor1=layer==0?0x000000ffu:layer==1&&s.cursor==i?0xffffffffu:0xc8c8c8ffu;
+     icon.vehicleColor0=0;icon.vehicleColor1=layer==0?0x000000ffu:!progress().vehicle(weight,s.vehicleChoice(i))?LockedTint:layer==1&&s.cursor==i?0xffffffffu:0xc8c8c8ffu;
     }
    }
    if(s.cursor==i)c.glow("vehicle",p,nullptr,s.vehicleChoice(i));
@@ -487,7 +500,9 @@ static void composeMenuImpl(const MenuState& s,const UiRaceView& race,std::vecto
     if(i==selectedCup){const float k=t/300.f;p.x+=(cups.x-p.x)*k;p.y+=(cups.y-p.y)*k;p.sx*=1+t/600.f;p.sy*=1+t/600.f;}
     else{p.alpha*=std::clamp(300.f-t,0.f,255.f)/255.f;if(p.alpha<=0)continue;}
    }
-   c.panel(base,p);c.icon("cup_",i,base,"icon",p);
+   c.panel(base,p);
+   {const auto first=q.size();c.icon("cup_",i,base,"icon",p);
+    if(!(s.selection.mode==UiMode::TimeTrials?progress().anyClassCup(i):progress().cup(unsigned(s.selection.engineClass),i)))c.dim(first);}
    if(i==selectedCup||(pickCup&&uiFocusAnimation(s,i).changing())){
     c.text(CupNames[i],"cup_select",p);if(pickCup&&i==selectedCup)c.glow("cup",p,CupNames[i],i);
    }
@@ -584,7 +599,7 @@ static void composeMenuImpl(const MenuState& s,const UiRaceView& race,std::vecto
   c.button("button",0,p,"Choose another course");break;}
  default:break;
  }
- c.notice();
+ c.notice();c.unlocked();
 }
 void composeMenu(const MenuState& s,const UiRaceView& race,std::vector<UiQuad>& q){composeMenuImpl(s,race,q,nullptr);}
 void composeMenu(const MenuState& s,const UiRaceView& race,std::vector<UiQuad>& q,const UiTransitionView& t){composeMenuImpl(s,race,q,&t);}

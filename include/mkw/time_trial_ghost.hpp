@@ -5,7 +5,7 @@
 // items and animation); the pose pins it to the recorded line every tick, so
 // the smallest divergence can't send it into a wall (it never touches
 // anything: KartCollide's intangible mask).
-// One file per course: ux0:data/mkw/ghosts/course_NN.mkg.
+// One file per course and license: ux0:data/mkw/ghosts/lL/course_NN.mkg.
 #include <cstddef>
 #include <cstdint>
 #include <vector>

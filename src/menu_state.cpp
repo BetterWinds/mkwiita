@@ -1,4 +1,5 @@
 #include <mkw/menu_ui.hpp>
+#include <mkw/progress.hpp>
 #include <algorithm>
 #include <cmath>
 
@@ -9,8 +10,12 @@ constexpr unsigned BikeChoices[]={3,4,5,9,10,11};
 // Each row pairs a kart and bike, in the original machine family order.
 constexpr unsigned AllVehicleChoices[]={0,3,1,4,2,5,6,9,7,10,8,11};
 
-bool kartsOnly(const UiSelection& s){return s.mode==UiMode::GrandPrix&&s.engineClass==UiEngineClass::CC50&&!s.mixedEngineTypes;}
-bool bikesOnly(const UiSelection& s){return s.mode==UiMode::GrandPrix&&s.engineClass==UiEngineClass::CC100&&!s.mixedEngineTypes;}
+// Bikes in 50cc and karts in 100cc wait for the class's trophies (Progress::mixedTypes).
+bool mixed(const UiSelection& s){return s.mixedEngineTypes&&progress().mixedTypes(unsigned(s.engineClass));}
+bool kartsOnly(const UiSelection& s){return s.mode==UiMode::GrandPrix&&s.engineClass==UiEngineClass::CC50&&!mixed(s);}
+bool bikesOnly(const UiSelection& s){return s.mode==UiMode::GrandPrix&&s.engineClass==UiEngineClass::CC100&&!mixed(s);}
+// A cup the current license may race: Time Trials take one open in any class.
+bool cupOpen(const UiSelection& s,unsigned cup){return s.mode==UiMode::TimeTrials?progress().anyClassCup(cup):progress().cup(unsigned(s.engineClass),cup);}
 
 unsigned moveMainMenu(unsigned cursor,const UiInput& key){
  const auto& origin=UiMainMenuControls[cursor];
@@ -153,7 +158,7 @@ unsigned MenuState::vehicleSlot(unsigned choice)const{
 
 unsigned MenuState::engineClassMovie(unsigned slot)const{
  slot=std::min(slot,3u);
- return selection.mixedEngineTypes&&slot<2?slot+4:slot;
+ return selection.mixedEngineTypes&&slot<2&&progress().mixedTypes(slot)?slot+4:slot;
 }
 
 bool MenuState::supportsRace()const{
@@ -167,7 +172,7 @@ void MenuState::advance(unsigned ticks){age+=ticks;focusAge+=ticks;uiFocusAdvanc
 
 void MenuState::enter(UiPage next){
  normalize(selection);
- page=next;age=focusAge=0;unavailable=false;cursor=0;
+ page=next;age=focusAge=0;unavailable=locked=false;cursor=0;
  switch(page){
  case UiPage::License:cursor=selection.license;break;
  case UiPage::Mode:cursor=unsigned(selection.mode);break;
@@ -194,6 +199,7 @@ void MenuState::enter(UiPage next){
 UiAction MenuState::input(UiInput key){
  normalize(selection);
  cursor=std::min(cursor,count()-1);
+ if(unlockNotice>=0){if(key.accept||key.back||key.start)unlockNotice=-1;return UiAction::None;}
  if(page==UiPage::Race){if(key.start)enter(UiPage::Pause);return UiAction::None;}
  if(page==UiPage::Pause&&(key.start||key.back)){enter(UiPage::Race);return UiAction::ResumeRace;}
  if(key.back){
@@ -222,8 +228,9 @@ UiAction MenuState::input(UiInput key){
  if(key.switchType&&page==UiPage::EngineClass){
   // GPClassSelect::OnStartPress (USA 80825168) uses one toggle for both
   // unlocked classes. The current highlighted class does not limit it.
+  if(!progress().mixedTypes(0)&&!progress().mixedTypes(1)){unavailable=locked=true;return UiAction::None;}
   selection.mixedEngineTypes=!selection.mixedEngineTypes;
-  focusAge=0;unavailable=false;
+  focusAge=0;unavailable=locked=false;
   return UiAction::None;
  }
  if(page==UiPage::Rules&&(key.up||key.down||key.left||key.right)){
@@ -263,11 +270,15 @@ UiAction MenuState::input(UiInput key){
   uiFocusSelect(*this,previousCursor);unavailable=false;
  }
  if(!key.accept&&!(key.start&&(page==UiPage::Title||page==UiPage::Strap||page==UiPage::Intro)))return UiAction::None;
+ locked=false;
  switch(page){
  case UiPage::Strap:enter(UiPage::Intro);break;
  case UiPage::Intro:enter(UiPage::Title);break;
  case UiPage::Title:enter(UiPage::License);break;
- case UiPage::License:selection.license=cursor;enter(UiPage::MainMenu);break;
+ case UiPage::License:
+  // An empty slot asks for a name first (main shows the keyboard, then creates it).
+  if(!progress().license[std::min(cursor,Progress::Licenses-1)].used){nameRequest=true;break;}
+  selection.license=cursor;enter(UiPage::MainMenu);break;
  case UiPage::MainMenu:if(cursor==0)enter(UiPage::Mode);else unavailable=true;break;
  case UiPage::Mode:
   if(!raceMode(UiMode(cursor))){unavailable=true;break;}
@@ -275,6 +286,7 @@ UiAction MenuState::input(UiInput key){
   enter(selection.mode==UiMode::GrandPrix?UiPage::EngineClass:selection.mode==UiMode::VS?UiPage::VSMode:selection.mode==UiMode::Battle?UiPage::BattleMode:UiPage::Character);break;
  case UiPage::EngineClass:
   if(!raceEngineClass(UiEngineClass(cursor))){unavailable=true;break;}
+  if(UiEngineClass(cursor)==UiEngineClass::Mirror&&!progress().mirror()){unavailable=locked=true;break;}
   selection.engineClass=UiEngineClass(cursor);enter(UiPage::Character);break;
  case UiPage::VSMode:
   selection.teams=cursor==1;enter(UiPage::Rules);break;
@@ -284,7 +296,9 @@ UiAction MenuState::input(UiInput key){
   // A radio option becomes the row's choice; OK goes on to the characters.
   unsigned row,option;ruleCursor(row,option);
   switch(ruleRow(row).row){
-  case UiRuleRow::Class:selection.engineClass=UiEngineClass(option);break;
+  case UiRuleRow::Class:
+   if(UiEngineClass(option)==UiEngineClass::Mirror&&!progress().mirror()){unavailable=locked=true;break;}
+   selection.engineClass=UiEngineClass(option);break;
   case UiRuleRow::Cpu:selection.cpuLevel=option;break;
   case UiRuleRow::Vehicles:selection.cpuVehicles=option;break;
   case UiRuleRow::Courses:selection.courseOrder=option;break;
@@ -297,9 +311,11 @@ UiAction MenuState::input(UiInput key){
  case UiPage::Character:
   // Includes the two Mii outfits, which also need Mii data.
   if(!raceDriver(characterDriver(cursor))){unavailable=true;break;}
+  if(!progress().character(characterDriver(cursor))){unavailable=locked=true;break;}
   selection.driver=characterDriver(cursor);enter(UiPage::Vehicle);break;
  case UiPage::Vehicle:
   if(!raceVehicle(vehicleChoice(cursor))){unavailable=true;break;}
+  if(!progress().vehicle(UiCharacters[std::min(selection.driver,unsigned(UiCharacters.size()-1))].weight,vehicleChoice(cursor))){unavailable=locked=true;break;}
   selection.vehicle=vehicleChoice(cursor);enter(UiPage::Drift);break;
  case UiPage::Drift:
   selection.automatic=cursor==0;
@@ -307,6 +323,7 @@ UiAction MenuState::input(UiInput key){
   enter(selection.mode==UiMode::Battle?UiPage::BattleCup:UiPage::Cup);break;
  case UiPage::Cup:
   // A Grand Prix selects the whole cup. VS and Time Trials select a course.
+  if(!cupOpen(selection,cursor)){unavailable=locked=true;break;}
   if(selection.course/4!=cursor||selection.mode==UiMode::GrandPrix)selection.course=cursor*4;
   enter(selection.mode==UiMode::GrandPrix?UiPage::Confirm:UiPage::Course);break;
  case UiPage::Course:selection.course=selection.course/4*4+cursor;enter(selection.mode==UiMode::TimeTrials?UiPage::Ghost:UiPage::Confirm);break;

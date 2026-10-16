@@ -23,6 +23,7 @@
 #include <mkw/race_results.hpp>
 #include <mkw/trick_presentation.hpp>
 #include <mkw/time_trial_ghost.hpp>
+#include <mkw/progress.hpp>
 #include <mkw/race_items.hpp>
 #include <mkw/star_power.hpp>
 #include <mkw/job_worker.hpp>
@@ -87,6 +88,13 @@
 #include <functional>
 #include <memory>
 #include <string_view>
+#include <cctype>
+#include <cstring>
+#ifdef __vita__
+#include <psp2/appmgr.h>
+#include <psp2/common_dialog.h>
+#include <psp2/ime_dialog.h>
+#endif
 
 // Heap split sized for the smallest launch mode, Old 3DS (64 MB application
 // region): LINEAR 32 MiB leaves about 29 MiB of ordinary heap there. Kinoko's
@@ -110,9 +118,11 @@ static bool exists(const char* p) { FILE* f=fopen(p,"rb"); if(!f)return false; f
 // objects under about 4 px and far item boxes' sparkle. ux0:data/mkw/quality.txt
 // overrides any field, one "name=value" per line ("reduced=1" first takes the
 // whole Old 3DS profile).
+// The Vita build's own detail: everything but what is too small to see.
+static void vitaQualityDefaults(mkw::RenderQuality& q){q.setReduced(false);q.minScreenRatio=.015f;q.boxSparkleRatio=.04f;}
 static void applyVitaQuality(){
     auto& q=mkw::renderQuality();
-    q.setReduced(false);q.minScreenRatio=.015f;q.boxSparkleRatio=.04f;
+    vitaQualityDefaults(q);
     if(FILE* f=fopen("ux0:data/mkw/quality.txt","rb")){
         char line[128];
         while(fgets(line,sizeof line,f)){
@@ -138,6 +148,183 @@ static void applyVitaQuality(){
     printf("quality: minScreenRatio %.3f objectLowDistance %.0f shadowVolumes %d bloomBlurRounds %u boxSparkleRatio %.3f particleBudget %d kartEffectScreens %u animationStep %u framerate %u map %d\n",
         double(q.minScreenRatio),double(q.objectLowDistance),int(q.shadowVolumes),q.bloomBlurRounds,double(q.boxSparkleRatio),
         q.particleBudget==~0u?-1:int(q.particleBudget),q.kartEffectScreens,q.animationStep,q.framerate,int(q.wiiMap));
+}
+// The internal resolution (quality.txt "resolution", 1 to 2): read by
+// platform/vita/src/c3d_gpu.cpp when the display starts, so a change needs a restart.
+static constexpr float DefaultResolution=1.5f;
+static float readVitaResolution(){
+    float resolution=DefaultResolution;
+    if(FILE* f=fopen("ux0:data/mkw/quality.txt","rb")){
+        char line[128];float value=0;
+        while(fgets(line,sizeof line,f))if(sscanf(line," resolution = %f",&value)==1)resolution=std::clamp(value,1.f,2.f);
+        fclose(f);
+    }
+    return resolution;
+}
+// Every field applyVitaQuality and the display read, so the file keeps what Settings doesn't show.
+static bool writeVitaQuality(const mkw::RenderQuality& q,float resolution){
+    mkdir("ux0:data",0777);mkdir(DATA,0777);
+    FILE* f=fopen("ux0:data/mkw/quality.txt","wb");if(!f)return false;
+    fprintf(f,"resolution=%.2f\nminScreenRatio=%g\nobjectLowDistance=%g\nshadowVolumes=%d\nbloomBlurRounds=%u\nboxSparkleRatio=%g\nparticleBudget=%d\nkartEffectScreens=%u\nanimationStep=%u\nframerate=%u\nmap=%d\n",
+        double(resolution),double(q.minScreenRatio),double(q.objectLowDistance),int(q.shadowVolumes),q.bloomBlurRounds,double(q.boxSparkleRatio),
+        q.particleBudget==~0u?-1:int(q.particleBudget),q.kartEffectScreens,q.animationStep,q.framerate,int(q.wiiMap));
+    return fclose(f)==0;
+}
+// The LiveArea's Settings button relaunches the game with "-settings"
+// (sce_sys/livearea/contents/template.xml).
+static bool launchedForSettings(){
+    char param[1024]={};
+    return sceAppMgrGetAppParam(param)>=0&&strstr(param,"settings");
+}
+// The first launch of a version (install or update): what it adds
+// (tools/release/WHATS_NEW.txt) before the opening, until A.
+static void showWhatsNew(mkw::Renderer& renderer,int whatsNew){
+    char title[48];snprintf(title,sizeof title,whatsNew==2?"UPDATED TO VERSION %s":"VERSION %s",MKW_VERSION);
+    while(aptMainLoop()){
+        hidScanInput();if(hidKeysDown()&(KEY_A|KEY_START))return;
+        renderer.begin({0,0,1000},{0,0,0},{0,1,0});renderer.drawScreenFade(1.f,false);
+        renderer.drawScreenText(title,24,14,2.f,0xffe040ffu);
+        renderer.drawScreenText("WHATS NEW",24,36,1.4f,0xffe040ffu);
+        float y=56;
+        for(const char* line=MKW_WHATS_NEW;*line;){
+            const char* end=strchr(line,'\n');const size_t n=end?size_t(end-line):strlen(line);
+            char text[64];snprintf(text,sizeof text,"%.*s",int(std::min<size_t>(n,sizeof text-1)),line);
+            renderer.drawScreenText(text,24,y,1.2f,0xffffffffu);y+=13;
+            line+=n;if(*line=='\n')++line;
+        }
+        renderer.drawScreenText("THIS ONLY SHOWS ONCE.   A: CONTINUE",24,222,1.f,0x909090ffu);
+        renderer.end();
+    }
+}
+// The system keyboard (license names, the resolution). vitaGL draws common
+// dialogs on the frame swap while vitaCommonDialog is set (platform/vita/src/c3d_gpu.cpp).
+extern bool vitaCommonDialog;
+static SceWChar16 keyboardInput[SCE_IME_DIALOG_MAX_TEXT_LENGTH+1];
+static bool openKeyboard(const char16_t* title,SceUInt32 type,unsigned maxLength,const char* initial=""){
+    std::memset(keyboardInput,0,sizeof keyboardInput);
+    for(unsigned i=0;initial[i]&&i<maxLength;++i)keyboardInput[i]=SceWChar16(static_cast<unsigned char>(initial[i]));
+    SceImeDialogParam param;sceImeDialogParamInit(&param);
+    param.type=type;param.title=reinterpret_cast<const SceWChar16*>(title);
+    param.maxTextLength=maxLength;param.initialText=keyboardInput;param.inputTextBuffer=keyboardInput;
+    if(sceImeDialogInit(&param)<0)return false;
+    vitaCommonDialog=true;return true;
+}
+// 0 while open; 1 with the text entered (ASCII, at most size-1 characters); -1 cancelled.
+static int pollKeyboard(char* text,unsigned size){
+    if(sceImeDialogGetStatus()!=SCE_COMMON_DIALOG_STATUS_FINISHED)return 0;
+    SceImeDialogResult result;std::memset(&result,0,sizeof result);sceImeDialogGetResult(&result);
+    sceImeDialogTerm();vitaCommonDialog=false;
+    if(result.button!=SCE_IME_DIALOG_BUTTON_ENTER)return -1;
+    unsigned n=0;
+    for(unsigned i=0;keyboardInput[i]&&n+1<size;++i)if(keyboardInput[i]<128)text[n++]=char(keyboardInput[i]);
+    text[n]=0;return 1;
+}
+static bool openNameKeyboard(){return openKeyboard(u"License name",SCE_IME_TYPE_BASIC_LATIN,10);}
+// Only characters the menus can draw (tools/cook_menu_ui.py LICENSE_NAME_CHARS).
+static int pollNameKeyboard(char (&name)[11]){
+    char typed[11];const int done=pollKeyboard(typed,sizeof typed);if(done<=0)return done;
+    unsigned n=0;
+    for(const char* c=typed;*c;++c)if(isalnum(static_cast<unsigned char>(*c))||(*c==' '&&n)||strchr(".-!?'",*c))name[n++]=*c;
+    while(n&&name[n-1]==' ')--n;
+    name[n]=0;return 1;
+}
+// Graphics presets. Default: the Vita build's own. Quality: twice the
+// resolution and every effect, held at 30 FPS. Performance: 60 FPS with the
+// costly effects off at the default resolution; objects keep their far detail.
+struct GraphicsPreset {const char* name;unsigned framerate;bool shadows;unsigned bloom;bool fullParticles;float distance,resolution;};
+static constexpr GraphicsPreset GraphicsPresets[]={
+    {"DEFAULT",60,true,2,true,7000.f,DefaultResolution},
+    {"QUALITY",30,true,2,true,12000.f,2.f},
+    {"PERFORMANCE",60,false,0,false,12000.f,DefaultResolution},
+};
+static constexpr unsigned ReducedParticles=96; // the Old 3DS profile's budget
+static unsigned distanceStep(float d){return d<5500?0:d<9500?1:2;}
+// The preset these settings are (std::size(GraphicsPresets): Custom).
+static unsigned matchPreset(const mkw::RenderQuality& q,float resolution){
+    for(unsigned i=0;i<std::size(GraphicsPresets);++i){const auto& p=GraphicsPresets[i];
+        if(q.framerate==p.framerate&&q.shadowVolumes==p.shadows&&std::min(q.bloomBlurRounds,2u)==p.bloom&&(q.particleBudget==~0u)==p.fullParticles
+           &&distanceStep(q.objectLowDistance)==distanceStep(p.distance)&&std::fabs(resolution-p.resolution)<.01f)return i;}
+    return unsigned(std::size(GraphicsPresets));
+}
+// Settings, before the game starts: graphics (quality.txt), Unlock everything
+// (every license) and deleting licenses. True starts the game.
+static bool runSettings(mkw::Renderer& renderer){
+    applyVitaQuality();
+    auto& q=mkw::renderQuality();auto& progress=mkw::progress();
+    const float startResolution=readVitaResolution();float resolution=startResolution;
+    enum Row:unsigned{Preset,Resolution,Framerate,Shadows,Bloom,Particles,Distance,Map,UnlockAll,License0,
+                      Reset=License0+mkw::Progress::Licenses,Start,Exit,Rows};
+    unsigned row=0;int deleting=-1;bool typing=false;
+    hidSetRepeatParameters(24,6);
+    while(aptMainLoop()){
+        hidScanInput();unsigned down=hidKeysDown(),nav=down|hidKeysDownRepeat();
+        if(typing){
+            down=nav=0;char typed[8];
+            if(const int done=pollKeyboard(typed,sizeof typed)){typing=false;
+                if(done>0)if(const float value=std::strtof(typed,nullptr);value>0)resolution=std::round(std::clamp(value,1.f,2.f)*100.f)/100.f;}
+        }
+        if(nav&(KEY_DUP|KEY_CPAD_UP)){row=(row+Rows-1)%Rows;deleting=-1;}
+        if(nav&(KEY_DDOWN|KEY_CPAD_DOWN)){row=(row+1)%Rows;deleting=-1;}
+        const int step=nav&(KEY_DLEFT|KEY_CPAD_LEFT)?-1:nav&(KEY_DRIGHT|KEY_CPAD_RIGHT)||down&KEY_A?1:0;
+        auto cycle=[&](unsigned value,unsigned count){return (value+count+unsigned(step))%count;};
+        if(step)switch(row){
+        case Preset:{
+            const unsigned n=unsigned(std::size(GraphicsPresets)),at=matchPreset(q,resolution);
+            const auto& p=GraphicsPresets[at<n?cycle(at,n):0];
+            q.framerate=p.framerate;q.shadowVolumes=p.shadows;q.bloomBlurRounds=p.bloom;q.particleBudget=p.fullParticles?~0u:ReducedParticles;
+            q.objectLowDistance=p.distance;resolution=p.resolution;break;}
+        case Resolution:
+            if(down&KEY_A){char now[8];snprintf(now,sizeof now,"%.2f",double(resolution));typing=openKeyboard(u"Resolution (1 to 2)",SCE_IME_TYPE_EXTENDED_NUMBER,4,now);}
+            else resolution=std::round(std::clamp(resolution+.1f*float(step),1.f,2.f)*10.f)/10.f;
+            break;
+        case Framerate:q.framerate=q.framerate==60?30:60;break;
+        case Shadows:q.shadowVolumes=!q.shadowVolumes;break;
+        case Bloom:q.bloomBlurRounds=cycle(std::min(q.bloomBlurRounds,2u),3);break;
+        case Particles:q.particleBudget=q.particleBudget==~0u?ReducedParticles:~0u;break;
+        case Distance:{constexpr float Far[]={4000.f,7000.f,12000.f};q.objectLowDistance=Far[cycle(distanceStep(q.objectLowDistance),3)];break;}
+        case Map:q.wiiMap=!q.wiiMap;break;
+        case UnlockAll:progress.unlockAll=!progress.unlockAll;break;
+        case Reset:if(down&KEY_A){vitaQualityDefaults(q);resolution=DefaultResolution;}break;
+        default:break;
+        }
+        // A license is deleted on a second A, after the warning.
+        if(down&KEY_A&&row>=License0&&row<Reset&&progress.license[row-License0].used){
+            if(deleting==int(row)){progress.erase(row-License0);deleting=-1;}else deleting=int(row);
+        }
+        if(down&KEY_A&&(row==Start||row==Exit)){
+            if(!progress.save()||!writeVitaQuality(q,resolution))printf("settings save failed\n");
+            // The display takes its resolution once: restart the game to apply a new one.
+            if(row==Start&&std::fabs(resolution-startResolution)>=.005f)sceAppMgrLoadExec("app0:eboot.bin",nullptr,nullptr);
+            return row==Start;
+        }
+        if(down&KEY_B)return false;
+        renderer.begin({0,0,1000},{0,0,0},{0,1,0});renderer.drawScreenFade(1.f,false);
+        renderer.drawScreenText("SETTINGS",24,12,2.f,0xffe040ffu);
+        auto line=[&](unsigned r,const char* label,const char* value){
+            char text[64];snprintf(text,sizeof text,"%-20s%s",label,value);
+            renderer.drawScreenText(text,24,34+float(r)*12,1.2f,r==row?0xffe040ffu:0xffffffffu);
+        };
+        static const char* bloom[]={"OFF","LOW","HIGH"};static const char* far[]={"NEAR","NORMAL","FAR"};
+        const unsigned preset=matchPreset(q,resolution);char scale[24];
+        snprintf(scale,sizeof scale,"%.2fX%s",double(resolution),std::fabs(resolution-startResolution)>=.005f?"  RESTARTS":"");
+        line(Preset,"PRESET",preset<std::size(GraphicsPresets)?GraphicsPresets[preset].name:"CUSTOM");
+        line(Resolution,"RESOLUTION",scale);
+        line(Framerate,"FRAMERATE",q.framerate==60?"60":"30");
+        line(Shadows,"SHADOWS",q.shadowVolumes?"ON":"OFF");
+        line(Bloom,"BLOOM",bloom[std::min(q.bloomBlurRounds,2u)]);
+        line(Particles,"PARTICLES",q.particleBudget==~0u?"FULL":"REDUCED");
+        line(Distance,"OBJECT DETAIL",far[distanceStep(q.objectLowDistance)]);
+        line(Map,"MINIMAP",q.wiiMap?"WII":"OUTLINE");
+        line(UnlockAll,"UNLOCK EVERYTHING",progress.unlockAll?"ON":"OFF");
+        for(unsigned i=0;i<mkw::Progress::Licenses;++i){
+            const auto& l=progress.license[i];char label[24];snprintf(label,sizeof label,"LICENSE %u",i+1);
+            line(License0+i,label,!l.used?"EMPTY":deleting==int(License0+i)?"A AGAIN: DELETE":l.name);
+        }
+        line(Reset,"RESET TO DEFAULTS","");line(Start,"SAVE AND START","");line(Exit,"SAVE AND EXIT","");
+        renderer.drawScreenText("A: CHANGE   B: QUIT WITHOUT SAVING",24,226,1.f,0x909090ffu);
+        renderer.end();
+    }
+    return false;
 }
 #endif
 static K::u8* replayData=nullptr;
@@ -191,25 +378,18 @@ static unsigned engineClass=2;
 // Time Trials: one racer, no item boxes, a Triple Mushroom at the start, and
 // the best finish per course kept on the SD card (milliseconds, 0 = none).
 static bool timeTrial=false,newRecord=false;
+// Unlockables a result opened (Progress bits), announced one at a time in the menus.
+static std::vector<unsigned> pendingUnlocks;
+static void announceUnlocks(uint64_t before){
+    const uint64_t opened=mkw::progress().unlockables()&~before;
+    for(unsigned i=0;i<mkw::Progress::Unlockables;++i)if(opened>>i&1)pendingUnlocks.push_back(i);
+}
 // Time Trial ghosts (include/mkw/time_trial_ghost.hpp): the run raced (as
 // racer 1) or watched (as player 0), and this run's own recording. ghostTick
 // counts simulation ticks from the countdown, the recordings' frame index.
 static mkw::TimeTrialGhost ghostRun,ghostRecording;
 static int ghostMode=0; // 0 none, 1 race the ghost, 2 watch the replay
 static unsigned ghostTick=0;
-static std::array<uint32_t,32> bestTimes{};
-static constexpr const char* BestTimesPath="ux0:data/mkw/best-times.bin";
-static void loadBestTimes(){bestTimes={};if(FILE* f=fopen(BestTimesPath,"rb")){if(fread(bestTimes.data(),sizeof(uint32_t),bestTimes.size(),f)!=bestTimes.size())bestTimes={};fclose(f);}}
-// The CIA reads its data from RomFS, so nothing else creates this folder on
-// the SD card. Write a temporary file first so a pulled card keeps the old times.
-static void saveBestTimes(){
-    mkdir("ux0:data",0777);mkdir(DATA,0777);
-    static constexpr const char* Temporary="ux0:data/mkw/best-times.tmp";
-    FILE* f=fopen(Temporary,"wb");if(!f)return;
-    const bool ok=fwrite(bestTimes.data(),sizeof(uint32_t),bestTimes.size(),f)==bestTimes.size();
-    if(fclose(f)!=0||!ok){remove(Temporary);return;}
-    remove(BestTimesPath);rename(Temporary,BestTimesPath);
-}
 static void formatTime(char* out,size_t size,uint32_t ms){snprintf(out,size,"%u:%02u.%03u",unsigned(ms/60000),unsigned(ms/1000%60),unsigned(ms%1000));}
 static bool courseAvailable(unsigned i){return Courses[i].supported&&exists("Race/Common.szs")&&exists(Courses[i].archive)&&exists(Courses[i].models)&&(!*Courses[i].sky||exists(Courses[i].sky));}
 static void showControls(bool ready){
@@ -451,6 +631,13 @@ int main() {
     };
     mkw::Renderer renderer;
     if(!renderer.init()){report("FAIL Citro3D initialization");return startupFailure("Citro3D initialization failed.");}
+    mkw::progress().load();
+#ifdef __vita__
+    // The LiveArea's Settings button: the settings, then the game or back to the LiveArea.
+    if(fullRace&&launchedForSettings()&&!runSettings(renderer)){renderer.shutdown();gfxExit();return 0;}
+    // Before the opening: what this version adds, once.
+    if(fullRace&&!autoplay)if(const int whatsNew=firstLaunchOfVersion())showWhatsNew(renderer,whatsNew);
+#endif
     // Stereo 3D (docs/STEREO_3D.md): New 3DS with a 3D screen only. QA can pin
     // the slider with stereo-slider.txt (0..1) for lockstep captures.
     if(renderer.stereoCapable()){
@@ -502,12 +689,12 @@ int main() {
     // Everything a page needs to appear: textures, movie streams and models.
     // The key changes only when the composed resident set can change.
     struct ResidencyKey {
-        mkw::UiPage page=mkw::UiPage::Strap;unsigned cursor=0;mkw::UiSelection selection{};bool unavailable=false;
+        mkw::UiPage page=mkw::UiPage::Strap;unsigned cursor=0;mkw::UiSelection selection{};bool unavailable=false,locked=false;int unlockNotice=-1;
         bool modal=false;mkw::UiPage underlayPage=mkw::UiPage::Strap;unsigned underlayCursor=0;
         bool operator==(const ResidencyKey&)const=default;
     };
     auto residencyKey=[](const mkw::MenuState& state,const mkw::MenuState* underlay){
-        ResidencyKey key;key.page=state.page;key.cursor=state.cursor;key.selection=state.selection;key.unavailable=state.unavailable;
+        ResidencyKey key;key.page=state.page;key.cursor=state.cursor;key.selection=state.selection;key.unavailable=state.unavailable;key.locked=state.locked;key.unlockNotice=state.unlockNotice;
         if(underlay){key.modal=true;key.underlayPage=underlay->page;key.underlayCursor=underlay->cursor;}
         return key;
     };
@@ -577,6 +764,13 @@ int main() {
         // The first page appears only once resident; until then the previous
         // frame (race or black) stays on screen instead of a partial page.
         bool revealed=false;unsigned stable=0,heldFrames=0;
+        // A new license: its name from the keyboard, then on to the main menu.
+        bool naming=false;
+        auto createLicense=[&](const char* name){
+            auto& progress=mkw::progress();const unsigned slot=std::min(menu.cursor,mkw::Progress::Licenses-1);
+            progress.create(slot,name);if(!progress.save())report("save failed");
+            const auto before=menu;menu.selection.license=slot;menu.enter(mkw::UiPage::MainMenu);transition.begin(before,menu);
+        };
         auto leave=[&](mkw::UiAction action){
             loader.stop();renderer.waitForGpu();menuAudio.close();
             menuModels.reset(renderer);menuIcons.reset(renderer);menuRenderer.release(renderer);
@@ -592,7 +786,7 @@ int main() {
             hidScanInput();unsigned down=hidKeysDown();
             unsigned navigation=down|hidKeysDownRepeat();
             mkw::UiInput input{bool(navigation&(KEY_DUP|KEY_CPAD_UP)),bool(navigation&(KEY_DDOWN|KEY_CPAD_DOWN)),bool(navigation&(KEY_DLEFT|KEY_CPAD_LEFT)),bool(navigation&(KEY_DRIGHT|KEY_CPAD_RIGHT)),bool(down&KEY_A),bool(down&KEY_B),bool(down&KEY_START),bool(down&KEY_Y)};
-            if(!revealed)input={};
+            if(!revealed||naming)input={};
             if(autoplay){input=autopilot->menu(menu,revealed&&!transition.active());if(autopilot->finished())return leave(mkw::UiAction::Exit);}
             // The Ghost page offers the course's saved Time Trial ghost. On the
             // Course page it follows the focused course, so the Ghost page
@@ -607,6 +801,21 @@ int main() {
              else ghostCourse=-1;}
             const auto beforeInput=menu;
             auto action=transition.input(menu,input);
+            if(menu.nameRequest){
+                menu.nameRequest=false;
+#ifdef __vita__
+                naming=!autoplay&&openNameKeyboard();
+#endif
+                if(!naming)createLicense("Player");
+            }
+#ifdef __vita__
+            if(naming){char name[11]={};if(const int done=pollNameKeyboard(name)){naming=false;if(done>0)createLicense(name);}}
+#endif
+            mkw::progress().current=menu.selection.license;
+            // Back in the menus, each new unlock gets its notice.
+            if(menu.unlockNotice<0&&!pendingUnlocks.empty()&&revealed&&!transition.active()&&!menu.simulates()&&menu.page!=mkw::UiPage::Pause&&menu.page!=mkw::UiPage::QuitConfirm){
+                menu.unlockNotice=int(pendingUnlocks.front());pendingUnlocks.erase(pendingUnlocks.begin());
+            }
             menuSound.input(beforeInput,menu,input,action);
             if(action!=mkw::UiAction::None){if(action==mkw::UiAction::StartRace||action==mkw::UiAction::RestartRace)menuSound.leave();return leave(action);}
             auto now=svcGetSystemTick();pending+=std::min(double(now-last)/SYSCLOCK_ARM11,.1)*60;last=now;
@@ -767,7 +976,7 @@ int main() {
         if(FILE* f=fopen("ux0:data/mkw/menu-result.json","w")){fprintf(f,"{\"pass\":%s,\"pages\":%u,\"transition_frames\":%u,\"top_only\":true}\n",ok&&captured==expected?"true":"false",unsigned(std::size(pages)),motionFrames);fclose(f);}else ok=false;
         report(ok?"MENU SCREENSHOT PASS":"MENU SCREENSHOT FAIL");renderer.waitForGpu();menuModels.reset(renderer);menuIcons.reset(renderer);menuRenderer.release();renderer.shutdown();gfxExit();return ok?0:4;
     }
-    auto applySelection=[&](){timeTrial=menu.selection.mode==mkw::UiMode::TimeTrials;battleMode=menu.selection.mode==mkw::UiMode::Battle;coinRunnersMode=battleMode&&menu.selection.coinRunners;newRecord=false;if(timeTrial)loadBestTimes();
+    auto applySelection=[&](){timeTrial=menu.selection.mode==mkw::UiMode::TimeTrials;battleMode=menu.selection.mode==mkw::UiMode::Battle;coinRunnersMode=battleMode&&menu.selection.coinRunners;newRecord=false;
         courseChoice=battleMode?mkw::RaceCourseCount+std::min(menu.selection.battleStage,9u):menu.selection.course;driverChoice=menu.selection.driver;vehicleChoice=menu.selection.vehicle;automaticDrift=menu.selection.automatic;
         // Grand Prix (its class page) and VS (its rules) choose the class.
         const bool classChosen=menu.selection.mode==mkw::UiMode::GrandPrix||menu.selection.mode==mkw::UiMode::VS;
@@ -1459,6 +1668,11 @@ int main() {
             ceremonySetup.character[p]=unsigned(player.character);ceremonySetup.vehicle[p]=unsigned(player.vehicle);
             if(order[p]==0){ceremonySetup.won=true;ceremonySetup.player=int(p);}
         }
+        // The cup's trophy and rank count toward the license's unlocks.
+        const uint64_t unlockedBefore=mkw::progress().unlockables();
+        mkw::progress().grandPrix(ceremonySetup.engineClass,ceremonySetup.cup,ceremonySetup.place,ceremonySetup.points);
+        announceUnlocks(unlockedBefore);
+        if(!mkw::progress().save())report("save failed");
         ceremonyQueued=true;
     };
     // Team VS and Battle: the winning team on the flat stand (no drive, no
@@ -1918,12 +2132,14 @@ int main() {
                     if(respawnStart)raceEvents.emit(mkw::RaceEvent::Respawn,physicsSteps);
                     if(cameraInput.finished&&!flow.finished){
                         raceEvents.emit(mkw::RaceEvent::Finish,physicsSteps,int(battleMode?balloonBattle.rank(0):raceGrid.rank()));results.finish();
-                        if(timeTrial&&courseChoice<bestTimes.size()){
+                        if(timeTrial&&courseChoice<32){
                             const auto& t=race->player(0).raceTimer();const uint32_t ms=uint32_t(t.min)*60000u+uint32_t(t.sec)*1000u+uint32_t(t.mil);
                             // A watched replay sets no record; a new best also keeps its ghost.
-                            if(ghostMode!=2&&ms&&(!bestTimes[courseChoice]||ms<bestTimes[courseChoice])){
-                                bestTimes[courseChoice]=ms;newRecord=true;saveBestTimes();
-                                ghostRecording.milliseconds=ms;if(!ghostRecording.save())report("ghost save failed");
+                            if(ghostMode!=2&&ms){
+                                const uint64_t unlockedBefore=mkw::progress().unlockables();
+                                if(mkw::progress().timeTrial(courseChoice,ms)){newRecord=true;ghostRecording.milliseconds=ms;if(!ghostRecording.save())report("ghost save failed");}
+                                announceUnlocks(unlockedBefore);
+                                if(!mkw::progress().save())report("save failed");
                             }
                         }
                     }
@@ -2513,9 +2729,9 @@ int main() {
                 raceHud.battle={battleMode,balloonBattle.teamScore(0),balloonBattle.teamScore(1),balloonBattle.score(0),
                                 mkw::BalloonBattle::team(0),balloonBattle.popup(),balloonBattle.popupAge()};
                 raceHud.drawOverlay(renderer,*raceItems,unsigned(race->stage()),race->timer(),battleMode?balloonBattle.rank(0):timeTrial?1u:raceGrid.rank(),raceGrid.lap(),battleMode?battleOver:raceGrid.finished(),physicsSteps,results.finishFrame(),results.hudSlide());
-                if(timeTrial&&courseChoice<bestTimes.size()&&!results.hudGone()){
+                if(timeTrial&&courseChoice<32&&!results.hudGone()){
                     // Best time under the lap counter; NEW RECORD! once beaten.
-                    char best[32];if(bestTimes[courseChoice]){char t[16];formatTime(t,sizeof t,bestTimes[courseChoice]);snprintf(best,sizeof best,"BEST %s",t);}else snprintf(best,sizeof best,"BEST -:--.---");
+                    char best[32];if(const uint32_t ms=mkw::progress().me().bestTimes[courseChoice]){char t[16];formatTime(t,sizeof t,ms);snprintf(best,sizeof best,"BEST %s",t);}else snprintf(best,sizeof best,"BEST -:--.---");
                     renderer.drawScreenText(best,392+mkw::display::WideExtra-6*float(std::strlen(best)),62,1.f,0xffffffffu);
                     if(newRecord)renderer.drawScreenText("NEW RECORD!",mkw::display::CenterX-33*2,84,2.f,0xffe040ffu);
                 }}

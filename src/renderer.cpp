@@ -1463,11 +1463,13 @@ void Renderer::textNow(const char* text,float x,float y,float size,uint32_t rgba
         if(c=='\n'){x=left-6*size;y+=9*size;continue;}
         const uint8_t* mask=c>='A'&&c<='Z'?alphabet[c-'A']:c>='0'&&c<='9'?digits[c-'0']:c=='/'?slash:c==':'?colon:c=='!'?bang:c=='-'?dash:c=='.'?dot:nullptr;
         if(!mask)continue;
+        // One quad per vertical run of lit pixels: about half the vertices of one per pixel.
         for(unsigned col=0;col<5;++col)for(unsigned row=0;row<7;++row)if(mask[col]&(1u<<row)){
+            unsigned end=row+1;while(end<7&&mask[col]&(1u<<end))++end;
+            const float run=float(end-row)*size,px=x+col*size,py=y+row*size;row=end;
             if(textCount_+6>kTextVertexLimit)break;
             if(eye_){textCount_+=6;continue;}
-            float px=x+col*size,py=y+row*size;
-            const Vec3 positions[]={{px,py,0},{px+size,py,0},{px+size,py+size,0},{px,py,0},{px+size,py+size,0},{px,py+size,0}};
+            const Vec3 positions[]={{px,py,0},{px+size,py,0},{px+size,py+run,0},{px,py,0},{px+size,py+run,0},{px,py+run,0}};
             for(auto p:positions)text_[textCount_++]={p,{0,0,1},{0,0},{0,0},{uint8_t(rgba>>24),uint8_t(rgba>>16),uint8_t(rgba>>8),uint8_t(rgba)}};
         }
     }

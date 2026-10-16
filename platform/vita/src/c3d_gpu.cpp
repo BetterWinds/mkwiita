@@ -25,6 +25,8 @@
 #include <vector>
 #include <malloc.h>
 #include <sys/stat.h>
+// A system dialog (the license name keyboard) is open: the swap draws it.
+bool vitaCommonDialog = false;
 
 using namespace c3dvita;
 
@@ -833,7 +835,7 @@ void present(Target* top) {
 	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16, &quad[0][2]);
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 	const uint64_t swapStart = sceKernelGetProcessTimeWide();
-	vglSwapBuffers(GL_FALSE);
+	vglSwapBuffers(vitaCommonDialog ? GL_TRUE : GL_FALSE);
 	stats.swapUs += sceKernelGetProcessTimeWide() - swapStart;
 	invalidateApplied();
 	state.targetDirty = true;
