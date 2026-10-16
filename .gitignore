@@ -16,3 +16,6 @@ build-vita-log.txt
 build-assets-log.txt
 # The Vita shader compiler module (extracted from your console, never shared)
 libshacccg.suprx
+# The game iso files
+*.iso
+*.wbfs
