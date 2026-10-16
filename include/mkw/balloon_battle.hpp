@@ -7,8 +7,7 @@
 namespace mkw {
 
 // Team battle rules (Balloon Battle and Coin Runners), presentation-free.
-// Two teams of up to six: racer i is on team i%2 (0 red, 1 blue), so the
-// player is always red and the CPUs alternate.
+// Two teams of up to six (0 red, 1 blue), shuffled at the start of each set.
 //
 // Balloon Battle: three balloons each (five at most). Popping an enemy's
 // balloon scores a point for the attacker; losing the last one costs a point
@@ -49,7 +48,15 @@ public:
         if (popupTicks_) --popupTicks_;
     }
 
-    static unsigned team(unsigned racer) { return racer % 2; }
+    static unsigned team(unsigned racer) { return racer < MaxRacers ? teams_[racer] : racer % 2; }
+    // Six red and six blue in a random order (Fisher-Yates); call once per set.
+    static void shuffleTeams(uint32_t seed) {
+        for (unsigned i = 0; i < MaxRacers; ++i) teams_[i] = uint8_t(i % 2);
+        for (unsigned i = MaxRacers - 1; i > 0; --i) {
+            seed = seed * 1664525u + 1013904223u;
+            std::swap(teams_[i], teams_[(seed >> 8) % (i + 1)]);
+        }
+    }
     bool enemies(unsigned a, unsigned b) const { return a < count_ && b < count_ && team(a) != team(b); }
 
     // An item or object hit `victim`; attacker is the item's owner (or out of range).
@@ -142,6 +149,7 @@ private:
         if (racer == 0 && change) { popup_ = change; popupTicks_ = PopupTicks; }
     }
 
+    static inline std::array<uint8_t, MaxRacers> teams_{0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
     std::array<uint8_t, MaxRacers> balloons_{};
     std::array<uint16_t, MaxRacers> scores_{};
     std::array<uint16_t, MaxRacers> safe_{};

@@ -7,19 +7,25 @@ namespace {
 // The longest kept run: 30 minutes of ticks.
 constexpr uint32_t MaxFrames=60u*60u*30u;
 void ghostPath(unsigned course,char* out,std::size_t size){std::snprintf(out,size,"ux0:data/mkw/ghosts/course_%02u.mkg",course);}
-struct Header {uint32_t magic,version,course,choice,driftAuto,milliseconds,frames;};
+bool readHeader(std::FILE* f,unsigned which,TimeTrialGhost::Header& h){
+    return std::fread(&h,sizeof h,1,f)==1&&h.magic==TimeTrialGhost::Magic&&h.version==TimeTrialGhost::Version&&h.course==which&&h.frames>0&&h.frames<=MaxFrames&&h.milliseconds;
+}
 }
 
-bool TimeTrialGhost::exists(unsigned course){
-    TimeTrialGhost ghost;return ghost.load(course);
+bool TimeTrialGhost::peek(unsigned which,Header& out){
+    char path[64];ghostPath(which,path,sizeof path);
+    FILE* f=std::fopen(path,"rb");if(!f)return false;
+    const bool ok=readHeader(f,which,out);
+    std::fclose(f);return ok;
 }
 
 bool TimeTrialGhost::load(unsigned which){
     clear();
     char path[64];ghostPath(which,path,sizeof path);
     FILE* f=std::fopen(path,"rb");if(!f)return false;
-    Header h{};bool ok=std::fread(&h,sizeof h,1,f)==1&&h.magic==Magic&&h.version==Version&&h.course==which&&h.frames>0&&h.frames<=MaxFrames&&h.milliseconds;
+    Header h{};bool ok=readHeader(f,which,h);
     if(ok){frames.resize(h.frames);ok=std::fread(frames.data(),sizeof(GhostFrame),frames.size(),f)==frames.size();}
+    if(ok){poses.resize(h.frames);ok=std::fread(poses.data(),sizeof(GhostPose),poses.size(),f)==poses.size();}
     std::fclose(f);
     if(!ok){clear();return false;}
     course=which;choice=h.choice;driftAuto=h.driftAuto!=0;milliseconds=h.milliseconds;
@@ -33,7 +39,8 @@ bool TimeTrialGhost::save() const{
     // A temporary file first, so a pulled card keeps the previous ghost.
     FILE* f=std::fopen(temporary,"wb");if(!f)return false;
     const Header h{Magic,Version,course,choice,driftAuto?1u:0u,milliseconds,uint32_t(frames.size())};
-    const bool ok=std::fwrite(&h,sizeof h,1,f)==1&&std::fwrite(frames.data(),sizeof(GhostFrame),frames.size(),f)==frames.size();
+    const bool ok=std::fwrite(&h,sizeof h,1,f)==1&&std::fwrite(frames.data(),sizeof(GhostFrame),frames.size(),f)==frames.size()
+        &&std::fwrite(poses.data(),sizeof(GhostPose),poses.size(),f)==poses.size();
     if(std::fclose(f)!=0||!ok){std::remove(temporary);return false;}
     std::remove(path);return std::rename(temporary,path)==0;
 }

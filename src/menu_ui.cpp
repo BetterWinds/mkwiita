@@ -156,8 +156,9 @@ public:
  Name buttonState(const char* base,unsigned slot)const{return Name(base,state.cursor==slot?"_select":"_free");}
  void movieOverlay(const char* base,Pose p){panel(Name(base,"_overlay"),p);}
  void movieButton(const char* base,Pose p){panel(Name(base,"_underlay"),p);}
- void inPane(const char* key,const char* base,const char* name,Pose p={},float a=1){
-  if(auto* r=pane(base,name);r&&r->visible){
+ // hidden: a pane the cook baked out of the panel image, filled at runtime.
+ void inPane(const char* key,const char* base,const char* name,Pose p={},float a=1,bool hidden=false){
+  if(auto* r=pane(base,name);r&&(r->visible||hidden)){
    const auto before=out.size();
    float x=p.x+r->x*p.sx,y=-p.y+r->y*p.sy,w=r->w*p.sx,h=r->h*p.sy,alpha=a*r->alpha;
    applyMotion(x,y,w,h,alpha,p,focusMotion(*r,p),a);
@@ -235,7 +236,21 @@ public:
   if(shadow)textSprite(lookup().find(text,true,shadow->font,shadow->textStyle),*shadow,p);
   textSprite(lookup().find(text,true,r->font,r->textStyle),*r,p,tint);
  }
- void icon(const char* prefix,unsigned i,const char* base,const char* name,Pose p={},float a=1){char key[64];std::snprintf(key,sizeof key,"%s%u",prefix,i);inPane(key,base,name,p,a);}
+ // Text set one character at a time from single-character sprites, for
+ // strings the cook can't bake ahead (times). Laid out like the pane's text.
+ void chars(const char* text,const char* base,Pose p={},uint32_t tint=0xffffffff,const char* name="text"){
+  const auto* r=pane(base,name);if(!r)return;
+  const auto& cell=UiFontCells[0];const float scale=r->fontW>0?r->fontW/cell[0]:r->h/cell[1];
+  std::array<unsigned,32> glyph{};unsigned n=0;float total=0;
+  for(const char* c=text;*c&&n<glyph.size();++c){const char one[2]{*c,0};
+   const unsigned i=lookup().find(one,true,r->font,r->textStyle);glyph[n++]=i;
+   if(i<std::size(UiSprites))total+=UiSprites[i].w*scale;}
+  float x=r->x+std::max(0.f,r->w-total)*(r->textAlign==0?0:r->textAlign==2?1:.5f);
+  for(unsigned k=0;k<n;++k){if(glyph[k]>=std::size(UiSprites))continue;
+   UiPaneInfo one=*r;one.x=x;one.w=UiSprites[glyph[k]].w*scale;one.textAlign=0;
+   textSprite(glyph[k],one,p,tint);x+=one.w;}
+ }
+ void icon(const char* prefix,unsigned i,const char* base,const char* name,Pose p={},float a=1,bool hidden=false){char key[64];std::snprintf(key,sizeof key,"%s%u",prefix,i);inPane(key,base,name,p,a,hidden);}
  void movie(const char* prefix,unsigned i,const char* base,const char* name,Pose p={},float a=1,float u0=0,float v0=0,float u1=1,float v1=1){
   char key[80];std::snprintf(key,sizeof key,"%s%u",prefix,i);
   unsigned frame=0;if(const auto* movie=uiFindMovie(key))frame=unsigned(double(state.age)*movie->fps*UiMovieFrameCount/(60.0*movie->frames))%UiMovieFrameCount;
@@ -527,10 +542,22 @@ static void composeMenuImpl(const MenuState& s,const UiRaceView& race,std::vecto
   c.chrome(pick?"Cups":"Stages");break;
  }
  case UiPage::Ghost:{
-  c.panel("ghost_info",control("GhostInfo","TimeAttackGhostList"));
-  if(!s.ghostAvailable)c.text("There are no ghosts for this course.","ghost_info",control("GhostInfo","TimeAttackGhostList"),0xffffffff,"none_text");
   const char* names[]={"Race This Ghost","Watch the Replay","Solo Time Trials"};
   const char* variants[]={"Run","Watch","Alone"};
+  // Without a ghost the page is Solo alone: no card, no ghost buttons.
+  if(!s.ghostAvailable){c.button("ghost",0,control("TimeAttackGhostList",variants[2]),names[2]);c.chrome("Ghosts");break;}
+  // The ghost's card (common_w075_ghost_data): course, time, racer and machine.
+  const Pose info=control("GhostInfo","TimeAttackGhostList");
+  c.panel("ghost_info",info);
+  c.text(CourseNames[std::min(s.selection.course,31u)],"ghost_info",info,0xffffffff,"course_name");
+  {const uint32_t ms=s.ghostMilliseconds;char time[16];std::snprintf(time,sizeof time,"%u'%02u\"%03u",unsigned(ms/60000),unsigned(ms/1000%60),unsigned(ms%1000));
+   c.chars(time,"ghost_info",info,0xffffffff,"time");}
+  const unsigned driver=std::min(s.ghostDriver,25u),weight=UiCharacters[driver].weight;
+  c.text(UiCharacters[driver].name,"ghost_info",info,0xffffffff,"player");
+  c.icon("driver_",driver,"ghost_info","chara",info,1,true);
+  {const unsigned vehicle=std::min(s.ghostVehicle,11u);char key[32];std::snprintf(key,sizeof key,"vehicle_%c%u","sml"[weight],vehicle);
+   const auto first=q.size();c.inPane(key,"ghost_info","machine",info,1,true);
+   if(q.size()>first){auto& icon=q.back();icon.vehicleIcon=vehicle;icon.vehicleColor0=0;icon.vehicleColor1=0xffffffffu;}}
   for(unsigned i=0;i<3;++i)c.button("ghost",i,control("TimeAttackGhostList",variants[i]),names[i]);
   c.chrome("Ghosts");break;
  }

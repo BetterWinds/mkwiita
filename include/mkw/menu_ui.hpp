@@ -73,8 +73,9 @@ public:
  // Results is the retail VS end-of-race menu (VSRaceEnd): Next Race / Quit
  // Game, or only Next after the final race of a VS set (IsFinalRace).
  bool finalRace=false;
- // The chosen course has a saved Time Trial ghost (kept current by main).
- bool ghostAvailable=false;
+ // The chosen course has a saved Time Trial ghost (kept current by main):
+ // its racer (UiCharacters index, vehicle choice) and time.
+ bool ghostAvailable=false;unsigned ghostDriver=0,ghostVehicle=0;uint32_t ghostMilliseconds=0;
  UiFocusState focus{};
  UiAction input(UiInput);
  void advance(unsigned ticks);

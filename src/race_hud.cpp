@@ -6,6 +6,7 @@
 #include <mkw/item_box_uv.hpp>
 #include <mkw/bomb_blast.hpp>
 #include <mkw/race_balloon.hpp>
+#include <mkw/balloon_battle.hpp>
 #include <mkw/battle_hud_layout.hpp>
 #include <mkw/bullet_bill.hpp>
 #include <mkw/blooper.hpp>
@@ -635,8 +636,8 @@ void RaceHud::drawOverlay(Renderer& renderer,const RaceItems& items,unsigned sta
             const auto& n=BalloonNames[character];
             const float tw=n.width*BalloonFontScale[0]*Unit,th=n.height*BalloonFontScale[1]*Unit;
             const float right=ax+(BalloonText[0]+BalloonText[2]*.5f)*Unit,cy=ay-BalloonText[1]*Unit;
-            // Battle: names in the racer's team colour (chara_name_text_color_red/blue).
-            const uint32_t nameColor=!battle.active?0xffffffffu:b.shown%2?0x78a8ffffu:0xff7070ffu;
+            // Battle and Team VS: names in the racer's team colour (chara_name_text_color_red/blue).
+            const uint32_t nameColor=!teams?0xffffffffu:BalloonBattle::team(b.shown)?0x78a8ffffu:0xff7070ffu;
             renderer.drawScreenSpriteRegion(impl_->names[character],right-tw,cy-th*.5f,tw,th,0,0,n.u,n.v,b.alpha,nameColor);
         }
     }

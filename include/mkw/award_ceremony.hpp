@@ -33,8 +33,10 @@ public:
         unsigned engineClass=2; // 0 50cc, 1 100cc, 2 150cc, 3 Mirror
         // Team VS and Battle: no winning run and no podium; the winning team
         // stands on the flat award_v_stand2 and every member plays demowin.
-        // won: the player's team won.
+        // won: the player's team won; winner 0 red, 1 blue; mode for the
+        // standings' top line: 0 Balloon Battle, 1 Coin Runners, 2 Team VS.
         bool team=false;
+        unsigned winner=0,mode=0;
     };
     ~AwardCeremony();
     // Main thread, render thread idle and not deferred. On false the scene is
@@ -89,7 +91,7 @@ private:
     std::array<Racer,6> racers_;
     std::array<Kart,3> karts_;
     std::vector<Camera> cameras_;
-    Text headline_,placeText_,classText_,cupName_,rankLabel_,gradeText_;
+    Text headline_,placeText_,classText_,cupName_,rankLabel_,gradeText_,teamText_,modeText_;
     Texture cupIcon_,confettiTexture_;
     std::vector<Confetti> confetti_;
     std::vector<DriveCamera> driveCameras_;std::vector<Route> routes_;

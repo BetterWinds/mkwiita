@@ -85,7 +85,21 @@ TEXT=[('congratulations','Congratulations!','Race_U'),('better_luck','Better luc
       *[(f'cup_{i}',name,'Award_U') for i,name in enumerate(CUP_NAMES)],('rank','RANK:','Race_U'),
       *[(f'grade_{i}',grade,None) for i,grade in enumerate(GRADES)],
       *[(f'place_{i}',text,'Race_U') for i,text in enumerate(PLACES)],
-      *[(f'class_{i}',text,None) for i,text in enumerate(CLASSES)]]
+      *[(f'class_{i}',text,None) for i,text in enumerate(CLASSES)],
+      # Team VS and Battle standings: the winners' line and the mode at the top left.
+      ('team_0','The red team wins!','Race_U'),('team_1','The blue team wins!','Race_U'),
+      *[(f'mode_{i}',text,'Race_U') for i,text in enumerate(['Balloon Battle','Coin Runners','Team VS Race'])]]
+
+def bmg_text(data):
+    """BMG messages with every escape (U+001A, its byte length, payload: colour,
+    icons) as a NUL, so a message wrapped in a colour code ("The red team
+    wins!") still matches whole."""
+    out=bytearray();i=0
+    while i+1<len(data):
+        if data[i]==0 and data[i+1]==0x1a and i+2<len(data):
+            out+=bytes(2);i+=max(data[i+2],4);continue
+        out+=data[i:i+2];i+=2
+    return bytes(out)
 
 def cook_text():
     from cook_race_hud import font_strings
@@ -96,9 +110,10 @@ def cook_text():
     messages={}
     for archive in ('Race_U','Award_U'):
         folder=WORK/archive;unpack(EXTRACTED/f'Scene/UI/{archive}.szs',folder)
-        messages[archive]=b''.join(p.read_bytes() for p in folder.rglob('*.bmg'))
+        messages[archive]=bmg_text(b''.join(p.read_bytes() for p in folder.rglob('*.bmg')))
     for key,text,archive in TEXT:
-        if archive and ('\0'+text+'\0').encode('utf-16-be') not in b'\0\0'+messages[archive]+b'\0\0':
+        # A whole message, or one after an icon and its space (" Team VS Race").
+        if archive and not any(('\0'+lead+text+'\0').encode('utf-16-be') in b'\0\0'+messages[archive]+b'\0\0' for lead in ('',' ')):
             raise ValueError(f'{text!r} is not in {archive} messages')
     images=font_strings(kanji,[text for _,text,_ in TEXT])
     rows={key:{**cook_image_sprite(images[text],'ceremony_text_'+key,OUT),'text':text} for key,text,_ in TEXT}

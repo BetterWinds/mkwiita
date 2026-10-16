@@ -72,6 +72,7 @@
 #include <game/system/KPadDirector.hh>
 #include <game/render/KartCamera.hh>
 #include <game/kart/KartObjectManager.hh>
+#include <game/kart/KartDynamics.hh>
 #include <game/kart/KartSuspensionPhysics.hh>
 #include <game/kart/KartMove.hh>
 #include <game/kart/KartJump.hh>
@@ -147,12 +148,31 @@ static bool fullRace=false,automaticDrift=false;
 // Battle on the ten arenas (RaceCourseCount..): three-minute team matches,
 // Balloon Battle or Coin Runners (include/mkw/balloon_battle.hpp).
 static bool battleMode=false,coinRunnersMode=false;
-// Team VS (VS > Team Race): two teams as in battle (racer i on team i % 2);
+// Team VS (VS > Team Race): two teams as in battle (BalloonBattle::team);
 // each team's points are the sum of its members'.
 static bool teamVs=false;
 static unsigned battleTicks=0;
 static std::array<bool,12> battleFalling{};
 static mkw::BalloonBattle balloonBattle;
+// Coin Runners: the coins a hit knocks loose fly out of the kart and land
+// around it; anyone can take one once it lands, and untaken ones vanish.
+struct DroppedCoin{mkw::Vec3 from{},to{};unsigned born=0;bool live=false;};
+static std::array<DroppedCoin,12*mkw::BalloonBattle::CoinDrop> droppedCoins{};
+static constexpr unsigned DroppedCoinFlight=24,DroppedCoinTicks=600;
+static uint16_t coinCues=0; // racers who took a coin this tick (SE_CC_COIN_GET)
+// shortcut: lands at the kart's height with no floor or wall test; ray-cast the course if coins end up in walls or mid-air.
+static void dropCoins(mkw::Vec3 at,unsigned count,unsigned tick){
+    for(unsigned k=0;k<count;++k){
+        const auto c=std::find_if(droppedCoins.begin(),droppedCoins.end(),[](const DroppedCoin& d){return !d.live;});
+        if(c==droppedCoins.end())return;
+        const float a=float(tick%360)*.0175f+float(k)*2.094f; // a third of a turn apart
+        *c={at,at+mkw::Vec3{std::cos(a)*300.f,0.f,std::sin(a)*300.f},tick,true};
+    }
+}
+static mkw::Vec3 droppedCoinPosition(const DroppedCoin& c,unsigned tick){
+    const float t=std::min(1.f,float(tick-c.born)/float(DroppedCoinFlight));
+    mkw::Vec3 p=c.from+(c.to-c.from)*t;p.y+=600.f*t*(1.f-t);return p; // a 150-unit hop
+}
 // A battle set: battles until a team has won battleWinsTarget of them (the
 // rules' "Wins"), each racer's points carried over.
 struct BattleSet {unsigned battle=0;std::array<uint16_t,12> points{};std::array<unsigned,2> wins{};bool next=false;};
@@ -574,10 +594,16 @@ int main() {
             mkw::UiInput input{bool(navigation&(KEY_DUP|KEY_CPAD_UP)),bool(navigation&(KEY_DDOWN|KEY_CPAD_DOWN)),bool(navigation&(KEY_DLEFT|KEY_CPAD_LEFT)),bool(navigation&(KEY_DRIGHT|KEY_CPAD_RIGHT)),bool(down&KEY_A),bool(down&KEY_B),bool(down&KEY_START),bool(down&KEY_Y)};
             if(!revealed)input={};
             if(autoplay){input=autopilot->menu(menu,revealed&&!transition.active());if(autopilot->finished())return leave(mkw::UiAction::Exit);}
-            // The Ghost page offers the course's saved Time Trial ghost.
+            // The Ghost page offers the course's saved Time Trial ghost. On the
+            // Course page it follows the focused course, so the Ghost page
+            // opens with the right buttons.
             {static int ghostCourse=-1;
-             if(menu.page==mkw::UiPage::Course||menu.page==mkw::UiPage::Ghost){const int course=int(menu.selection.course);
-              if(course!=ghostCourse){ghostCourse=course;menu.ghostAvailable=mkw::TimeTrialGhost::exists(unsigned(course));}}
+             if(menu.page==mkw::UiPage::Course||menu.page==mkw::UiPage::Ghost){
+              const int course=int(menu.page==mkw::UiPage::Course?menu.selection.course/4*4+menu.cursor:menu.selection.course);
+              if(course!=ghostCourse){ghostCourse=course;mkw::TimeTrialGhost::Header h{};
+               menu.ghostAvailable=mkw::TimeTrialGhost::peek(unsigned(course),h);
+               menu.ghostDriver=menu.ghostAvailable?h.choice/mkw::VehiclesPerDriver:0;menu.ghostVehicle=menu.ghostAvailable?h.choice%mkw::VehiclesPerDriver:0;
+               menu.ghostMilliseconds=menu.ghostAvailable?h.milliseconds:0;}}
              else ghostCourse=-1;}
             const auto beforeInput=menu;
             auto action=transition.input(menu,input);
@@ -848,17 +874,18 @@ int main() {
         if(battleMode){
             // Next after a battle continues the set; anything else starts a new one.
             if(battleSet.next)++battleSet.battle;
-            else{battleSet=BattleSet{};battleSet.battle=1;}
+            else{battleSet=BattleSet{};battleSet.battle=1;mkw::BalloonBattle::shuffleTeams(uint32_t(svcGetSystemTick()));}
             battleSet.next=false;raceGrid.clearStartOrder();return;
         }
         const bool continuing=vsSet.next&&vsSet.race<vsRaceCount&&vsSet.driver==driverChoice;
         if(continuing)++vsSet.race;
-        else{vsSet=VsSet{};vsSet.race=1;vsSet.driver=driverChoice;}
+        else{vsSet=VsSet{};vsSet.race=1;vsSet.driver=driverChoice;mkw::BalloonBattle::shuffleTeams(uint32_t(svcGetSystemTick()));}
         vsSet.next=false;
         setGrid(continuing);
     };
     vsSet.race=1;vsSet.driver=driverChoice; // the first race was chosen above
     battleSet=BattleSet{};battleSet.battle=1;
+    mkw::BalloonBattle::shuffleTeams(uint32_t(svcGetSystemTick()));
     setGrid(false);
     struct FlowState {unsigned stage=0;bool preview=false,fall=false,respawn=false,finished=false;} flow;
     auto fillCameraInput=[&](mkw::RaceCameraInput& in){
@@ -1096,7 +1123,7 @@ int main() {
         K::Kart::KartCollide::SetIntangibleMask(timeTrial&&ghostMode==1?2:0);opponents.ghostMask=timeTrial&&ghostMode==1?2:0;
         ghostTick=0;ghostRecording.clear();ghostRecording.course=courseChoice;
         ghostRecording.choice=driverChoice*mkw::VehiclesPerDriver+vehicleChoice;ghostRecording.driftAuto=automaticDrift;
-        battleFalling={};
+        battleFalling={};droppedCoins={};coinCues=0;
         balloonBattle.reset(raceGrid.count(),coinRunnersMode?mkw::BalloonBattle::Mode::Coin:mkw::BalloonBattle::Mode::Balloon);
         if(reload){if(!opponents.load()){trackLoadFailed=true;report("FAIL opponent graphics load");}}
         else opponents.resetAnimation();
@@ -1356,32 +1383,58 @@ int main() {
     uint64_t lastRaceFrame=0;
     // The animation fixtures read posed vertices back while racing: immediate.
     const bool deferredRace=!animationTest;
-    // Battle CPUs' items: shells and bananas ahead at an enemy in front, a trap
-    // or shell behind at a chaser, a dash item (Mushroom, Star, Mega) to ram an
-    // enemy close ahead; anything else after holding it a while.
+    // Battle CPUs' items: green shells straight at an enemy in a narrow cone,
+    // red shells at any enemy in range (they home), Bob-ombs into a crowd,
+    // bananas and fake boxes dropped on a chaser or lobbed at close range, a
+    // dash item (Mushroom, Star, Mega) to ram an enemy ahead and steal a
+    // balloon. Level shortens the wait and widens the ranges. Anything else
+    // goes after holding it a while.
     std::array<unsigned,12> battleHeld{};
     auto battleItemInput=[&](unsigned i)->mkw::ItemInput{
         using IK=mkw::ItemKind;
         const auto& h=raceItems->hud(i);const IK kind=h.deployed?h.heldKind:h.item;
         if(kind==IK::None||h.roulette){battleHeld[i]=0;return {};}
         ++battleHeld[i];
+        static constexpr unsigned AimTicks[]={45,20,6},HoldTicks[]={900,500,240};
+        static constexpr float RangeByLevel[]={.75f,1.f,1.35f};
+        const unsigned level=std::min(cpuLevelChoice,2u);const float range=RangeByLevel[level];
+        if(battleHeld[i]<AimTicks[level])return {};
         auto* objects=K::Kart::KartObjectManager::Instance();
         const mkw::Vec3 p=vec(objects->object(i)->pos()),f=vec(objects->object(i)->bodyFront());
-        float ahead=1e9f,behind=1e9f;
+        float narrow=1e9f,ahead=1e9f,behind=1e9f,anyDist=1e9f;unsigned crowd=0;
         for(unsigned j=0;j<raceGrid.count();++j){
-            if(!balloonBattle.enemies(i,j))continue;
+            if(!balloonBattle.enemies(i,j)||(!coinRunnersMode&&balloonBattle.safe(j)))continue;
+            if(objects->object(j)->status().onBit(K::Kart::eStatus::BeforeRespawn,K::Kart::eStatus::InRespawn))continue;
             mkw::Vec3 d=vec(objects->object(j)->pos())-p;d.y=0;const float dist=length(d);
             if(dist<1.f)continue;
+            anyDist=std::min(anyDist,dist);if(dist<2000.f*range)++crowd;
             const float c=(d.x*f.x+d.z*f.z)/(dist*std::max(std::hypot(f.x,f.z),.001f));
-            if(c>.85f)ahead=std::min(ahead,dist);else if(c<-.7f)behind=std::min(behind,dist);
+            if(c>.95f)narrow=std::min(narrow,dist);
+            if(c>.6f)ahead=std::min(ahead,dist);else if(c<-.6f)behind=std::min(behind,dist);
         }
-        const bool dash=kind==IK::Mushroom||kind==IK::TripleMushroom||kind==IK::GoldenMushroom||kind==IK::Star||kind==IK::MegaMushroom;
-        const bool trap=kind==IK::Banana||kind==IK::TripleBanana||kind==IK::FakeBox||kind==IK::Bobomb;
         const bool tap=(physicsSteps+i*7)%8==0; // a press, not a held button
-        if(dash)return {tap&&ahead<1500.f,false,false};
-        if(ahead<(trap?2500.f:4000.f))return {tap,false,true};
-        if(behind<2500.f)return {tap,true,false};
-        if(battleHeld[i]>600)return {tap,trap,!trap};
+        switch(kind){
+        case IK::Mushroom:case IK::TripleMushroom:case IK::GoldenMushroom:case IK::Star:case IK::MegaMushroom:
+            if(ahead<2000.f*range)return {tap,false,false};break;
+        case IK::GreenShell:case IK::TripleGreenShell:
+            if(narrow<4500.f*range)return {tap,false,true};
+            if(behind<1500.f*range)return {tap,true,false};break;
+        case IK::RedShell:case IK::TripleRedShell:
+            if(ahead<6000.f*range)return {tap,false,true};
+            if(anyDist<3000.f*range)return {tap,false,true};break;
+        case IK::Bobomb:
+            if(crowd>=2||ahead<2500.f*range)return {tap,false,true};
+            if(behind<1200.f*range)return {tap,true,false};break;
+        case IK::Banana:case IK::TripleBanana:case IK::FakeBox:
+            if(behind<2500.f*range)return {tap,true,false};
+            if(narrow<1800.f*range)return {tap,false,true};break;
+        default:
+            if(anyDist<5000.f*range)return {tap,false,false};break;
+        }
+        if(battleHeld[i]>HoldTicks[level]){
+            const bool trap=kind==IK::Banana||kind==IK::TripleBanana||kind==IK::FakeBox;
+            return {tap,trap,!trap};
+        }
         return {};
     };
     // Grand Prix award ceremony after the cup's last race (Next on its menu).
@@ -1389,6 +1442,8 @@ int main() {
     bool ceremonyQueued=false;mkw::AwardCeremony::Setup ceremonySetup;
     // The standings after the podium: every racer's Grand Prix total.
     std::array<mkw::RaceResultEntry,12> standingsRows{};unsigned standingsCount=0;
+    // Team VS and Battle: the standings in team columns, the winners on the left.
+    int standingsLeftTeam=-1;
     auto queueCeremony=[&](){
         const auto& scenario=K::System::RaceConfig::Instance()->raceScenario();
         const unsigned n=std::min(raceGrid.count(),12u);
@@ -1397,7 +1452,7 @@ int main() {
         ceremonySetup={};ceremonySetup.count=std::min(n,3u);ceremonySetup.cup=courseChoice/4;ceremonySetup.points=vsSet.points[0];
         ceremonySetup.engineClass=mirrorMode?3u:engineClass;
         for(unsigned p=0;p<n;++p)if(order[p]==0)ceremonySetup.place=p+1;
-        standingsCount=n;
+        standingsCount=n;standingsLeftTeam=-1;
         for(unsigned i=0;i<n;++i){auto& r=standingsRows[i];r={};r.racer=uint8_t(i);r.character=uint8_t(scenario.players[i].character);r.human=i==0;r.previous=vsSet.points[i];}
         for(unsigned p=0;p<ceremonySetup.count;++p){
             const auto& player=scenario.players[order[p]];
@@ -1421,13 +1476,14 @@ int main() {
         for(unsigned i=0;i<n;++i)if(mkw::BalloonBattle::team(i)==winner)order[members++]=i;
         std::stable_sort(order.begin(),order.begin()+members,[&](unsigned a,unsigned b){return points(a)>points(b);});
         ceremonySetup={};ceremonySetup.team=true;ceremonySetup.won=winner==mine;ceremonySetup.count=std::min(members,6u);
+        ceremonySetup.winner=winner;ceremonySetup.mode=battleMode?(coinRunnersMode?1u:0u):2u;
         ceremonySetup.engineClass=mirrorMode?3u:engineClass;
         for(unsigned p=0;p<ceremonySetup.count;++p){
             const auto& player=scenario.players[order[p]];
             ceremonySetup.character[p]=unsigned(player.character);ceremonySetup.vehicle[p]=unsigned(player.vehicle);
             if(order[p]==0)ceremonySetup.player=int(p);
         }
-        standingsCount=n;
+        standingsCount=n;standingsLeftTeam=int(winner);
         for(unsigned i=0;i<n;++i){auto& r=standingsRows[i];r={};r.racer=uint8_t(i);r.character=uint8_t(scenario.players[i].character);r.human=i==0;r.previous=uint16_t(points(i));r.team=uint8_t(mkw::BalloonBattle::team(i));}
         ceremonyQueued=true;
     };
@@ -1455,7 +1511,7 @@ int main() {
             const unsigned ticks=unsigned(pending);pending-=ticks;
             if(!ceremony->step(ticks))break;
             if(ceremony->standings()&&boardReady){
-                if(!standingsShown){standings->showTotals(standingsRows.data(),standingsCount);standingsShown=true;}
+                if(!standingsShown){standings->showTotals(standingsRows.data(),standingsCount,standingsLeftTeam);standingsShown=true;}
                 for(unsigned t=0;t<ticks;++t){standings->step({});flowUi.step(*standings);}
             }
             ceremony->draw(renderer,standingsShown?+drawBoard:nullptr,&board);
@@ -1615,8 +1671,12 @@ int main() {
             if(down&KEY_R)rampTrickFrames=8;else if(rampTrickFrames)--rampTrickFrames;
             const auto* localKart=K::Kart::KartObjectManager::Instance()->object(0);
             if(localKart->state()->boostRampType()>=0)boostRampFrames=8;else if(boostRampFrames)--boostRampFrames;
+            // Half-pipe zippers are neither: KartHalfPipe::calcTrick takes the
+            // trick while HalfPipeRamp (on the lip) or OverZipper (airborne).
+            const auto& localStatus=localKart->status();
+            const bool halfPipe=localStatus.onBit(K::Kart::eStatus::HalfPipeRamp)||localStatus.onBit(K::Kart::eStatus::OverZipper);
             const bool rampTrick=fullRace&&rampTrickFrames&&(held&KEY_R)&&
-                (localKart->status().onBit(K::Kart::eStatus::Trickable)||boostRampFrames);
+                (localStatus.onBit(K::Kart::eStatus::Trickable)||boostRampFrames||halfPipe);
             if(trick==K::System::Trick::None){
                 if(rampTrick){trick=padTrick();buttons=(buttons&~10u)|(held&KEY_B?2u:0u);}
                 else if(!qaMode&&(held&(KEY_X|KEY_Y)))trick=padTrick();
@@ -1641,6 +1701,7 @@ int main() {
                 // the player and a raced ghost drives racer 1, frame by frame.
                 const bool ghostLive=fullRace&&timeTrial&&unsigned(K::System::RaceManager::Instance()->stage())>=1;
                 const mkw::GhostFrame* ghostFrame=ghostLive&&ghostMode?ghostRun.frame(ghostTick):nullptr;
+                const unsigned ghostStepTick=ghostTick;
                 unsigned stepButtons=buttons;int stepStick=stick;auto stepTrick=trick;
                 if(ghostMode==2&&ghostFrame){stepButtons=ghostFrame->buttons;stepStick=ghostFrame->stick;stepTrick=K::System::Trick(ghostFrame->trick);}
                 // Restore current human input every simulation tick before any
@@ -1694,6 +1755,21 @@ int main() {
                         }
                         raceGrid.ai().setHazards(hazards.data(),radii.data(),n);
                     }
+                    if(battleMode){
+                        static std::vector<mkw::Vec3> goalBoxes,goalCoins;goalBoxes.clear();goalCoins.clear();
+                        for(const auto& b:raceItems->boxes())if(b.active)goalBoxes.push_back(b.position);
+                        if(coinRunnersMode)for(unsigned c=0;c<courseObjects.coinCount();++c)if(courseObjects.coinAvailable(c,physicsSteps))goalCoins.push_back(courseObjects.coinPosition(c));
+                        if(coinRunnersMode)for(const auto& c:droppedCoins)if(c.live&&physicsSteps-c.born>=DroppedCoinFlight)goalCoins.push_back(droppedCoinPosition(c,physicsSteps));
+                        mkw::RaceGrid::BattleGoals goals;goals.boxes=goalBoxes.data();goals.boxCount=unsigned(goalBoxes.size());
+                        goals.coins=goalCoins.data();goals.coinCount=unsigned(goalCoins.size());goals.coinRunners=coinRunnersMode;
+                        for(unsigned i=0;i<raceGrid.count();++i){
+                            const auto& h=raceItems->hud(i);
+                            if(h.item!=mkw::ItemKind::None||h.roulette||(h.deployed&&h.heldCharges))goals.holding|=uint16_t(1u<<i);
+                            if(balloonBattle.safe(i))goals.safe|=uint16_t(1u<<i);
+                            goals.scores[i]=uint16_t(balloonBattle.score(i));
+                        }
+                        raceGrid.setBattleGoals(goals);
+                    }
                     // Resolve item activation/expiry before choosing this tick's
                     // controller, including CPU Bullet Bills and the handoff back.
                     raceGrid.beforeStep(raceItems->bulletPlayers());
@@ -1721,6 +1797,22 @@ int main() {
                 // QA: a fall boundary (variant 0) activation, so the retail SetCamera hold applies.
                 if(autoplay&&lakituRespawnStep&&physicsSteps==lakituRespawnStep){auto* qaCollide=K::Kart::KartObjectManager::Instance()->object(0)->collide();qaCollide->setOobCameraPending(uint16_t(lakituRequest));qaCollide->activateOob(false,nullptr,false,false);}
                 scenes.calc();
+                if(ghostLive&&fullRace){
+                    // This tick's pose: recorded after the step that took the
+                    // tick's inputs, and pinned on the replaying kart the same way.
+                    auto* objects=K::Kart::KartObjectManager::Instance();
+                    if(ghostMode!=2&&ghostRecording.poses.size()<ghostRecording.frames.size()){
+                        const auto* local=objects->object(0);const auto& p=local->pos();const auto& f=local->fullRot();const auto& m=local->mainRot();
+                        ghostRecording.poses.push_back({{p.x,p.y,p.z},{f.v.x,f.v.y,f.v.z,f.w},{m.v.x,m.v.y,m.v.z,m.w}});
+                    }
+                    const unsigned racer=ghostMode==1?1u:0u;
+                    if(const mkw::GhostPose* pose=ghostMode&&racer<raceGrid.count()?ghostRun.pose(ghostStepTick):nullptr){
+                        auto* dynamics=objects->object(racer)->dynamics();
+                        dynamics->setPos({pose->pos[0],pose->pos[1],pose->pos[2]});
+                        dynamics->setFullRot(K::EGG::Quatf(pose->fullRot[3],pose->fullRot[0],pose->fullRot[1],pose->fullRot[2]));
+                        dynamics->setMainRot(K::EGG::Quatf(pose->mainRot[3],pose->mainRot[0],pose->mainRot[1],pose->mainRot[2]));
+                    }
+                }
                 {
                     // The player's driver model after the kart step: its trick animation,
                     // sparkle and sound start together (trick_presentation.hpp).
@@ -1744,7 +1836,11 @@ int main() {
                         const unsigned n=std::min<unsigned>(raceGrid.count(),mkw::BalloonBattle::MaxRacers);
                         // Every item hit counts once; a POW only for its targets.
                         for(const auto& e:raceItems->events())
-                            if(e.action>=0&&(e.effect!=mkw::ItemEffect::PowStomp||e.action==1))balloonBattle.hit(e.player,e.source);
+                            if(e.action>=0&&(e.effect!=mkw::ItemEffect::PowStomp||e.action==1)){
+                                const unsigned before=balloonBattle.score(e.player);
+                                balloonBattle.hit(e.player,e.source);
+                                if(coinRunnersMode&&e.player<n)dropCoins(vec(objects->object(e.player)->pos()),before-balloonBattle.score(e.player),physicsSteps);
+                            }
                         for(unsigned i=0;i<n;++i){
                             const auto& st=objects->object(i)->status();
                             // Falling off: the moment Lakitu is called.
@@ -1769,7 +1865,18 @@ int main() {
                             const mkw::Vec3 q=courseObjects.coinPosition(c);
                             for(unsigned i=0;i<n;++i){
                                 const mkw::Vec3 d=vec(objects->object(i)->pos())-q;
-                                if(dot(d,d)<200.f*200.f){balloonBattle.coin(i);courseObjects.collectCoin(c,physicsSteps);break;}
+                                if(dot(d,d)<200.f*200.f){balloonBattle.coin(i);courseObjects.collectCoin(c,physicsSteps);coinCues|=uint16_t(1u<<i);break;}
+                            }
+                        }
+                        if(coinRunnersMode)for(auto& c:droppedCoins){
+                            if(!c.live)continue;
+                            const unsigned age=physicsSteps-c.born;
+                            if(age>=DroppedCoinTicks){c.live=false;continue;}
+                            if(age<DroppedCoinFlight)continue;
+                            const mkw::Vec3 q=droppedCoinPosition(c,physicsSteps);
+                            for(unsigned i=0;i<n;++i){
+                                const mkw::Vec3 d=vec(objects->object(i)->pos())-q;
+                                if(dot(d,d)<200.f*200.f){balloonBattle.coin(i);c.live=false;coinCues|=uint16_t(1u<<i);break;}
                             }
                         }
                         balloonBattle.step();
@@ -1863,12 +1970,13 @@ int main() {
                             mkw::fillRaceAudioFrame(actors,{eye.x,eye.y,eye.z},{look.x,look.y,look.z});
                             mkw::fillRaceAudioItems(actors,*raceItems);mkw::fillRaceAudioObjects(actors);
                             if(jumpAction)actors.kart[0].cues|=mkw::cue::JumpAction;
+                            for(unsigned i=0;i<actors.kart.size();++i)if(coinCues>>i&1u)actors.kart[i].cues|=mkw::cue::CoinGet;
                             actors.lakituSound=lakitu.soundLoop();const mkw::Vec3 jp=lakitu.position();actors.lakituPosition={jp.x,jp.y,jp.z};
                         }else{
                             for(unsigned i=0;i<std::min<unsigned>(raceGrid.count(),kartContacts.size());++i)
                                 K::Kart::KartObjectManager::Instance()->object(i)->move()->takeSoundCues();
                         }
-                        raceSound.step(audio,&actors);
+                        raceSound.step(audio,&actors);coinCues=0;
                         // QA: race audio counters every 600 ticks (in memory; written with the profile).
                         if(menuProfile->enabled()&&raceSound.active()&&physicsSteps%600==0){
                             const auto st=mkw::SoundSystem::instance().stats();
@@ -2329,6 +2437,14 @@ int main() {
                 mkw::Bounds bounds;
                 if(const auto* coin=courseObjects.coinModel(&bounds))raceHud.drawCoinPile(renderer,*coin,bounds,balloonBattle.score(0));
             }
+            // Coin Runners: knocked-loose coins, turning like the arena's (drawCoin).
+            if(fullRace&&coinRunnersMode)if(const auto* coin=courseObjects.coinModel())for(const auto& c:droppedCoins){
+                if(!c.live)continue;
+                const mkw::Vec3 p=droppedCoinPosition(c,physicsSteps);
+                C3D_Mtx m;Mtx_Identity(&m);Mtx_RotateY(&m,float(physicsSteps)*.06f,true);
+                m.r[0].w=p.x;m.r[1].w=p.y+60.f;m.r[2].w=p.z;
+                renderer.draw(*coin,m);
+            }
             if(fullRace)lakitu.draw(renderer);
             profiler->mark(Profile::Items);
             if(playerJobQueued)mkw::jobWorker().finish(playerJob);else posePlayer();
@@ -2382,11 +2498,18 @@ int main() {
                     bottomView.milliseconds=uint32_t(left)*1000u/60u;
                     for(unsigned i=0;i<std::min(bottomView.racers,12u);++i)bottomView.racer[i].team=uint8_t(mkw::BalloonBattle::team(i));
                 }
+                if(coinRunnersMode){
+                    // Taken arena coins disappear until they respawn; knocked-loose ones show once landed.
+                    auto add=[&](mkw::Vec3 p){if(bottomView.coins<mkw::BottomView::MaxCoins)bottomView.coin[bottomView.coins++]={p.x,p.z};};
+                    for(unsigned c=0;c<courseObjects.coinCount();++c)if(courseObjects.coinAvailable(c,physicsSteps))add(courseObjects.coinPosition(c));
+                    for(const auto& c:droppedCoins)if(c.live&&physicsSteps-c.born>=DroppedCoinFlight)add(droppedCoinPosition(c,physicsSteps));
+                }
                 bottomScreen.drawMini(renderer,bottomView);
             }
             if(fullRace&&!intro.active()){auto* race=K::System::RaceManager::Instance();
                 const bool battleOver=battleTicks>=mkw::BalloonBattle::DurationTicks;
                 // Battle: team score, the player's points (coins) and the +1/-1 popup.
+                raceHud.teams=battleMode||teamVs;
                 raceHud.battle={battleMode,balloonBattle.teamScore(0),balloonBattle.teamScore(1),balloonBattle.score(0),
                                 mkw::BalloonBattle::team(0),balloonBattle.popup(),balloonBattle.popupAge()};
                 raceHud.drawOverlay(renderer,*raceItems,unsigned(race->stage()),race->timer(),battleMode?balloonBattle.rank(0):timeTrial?1u:raceGrid.rank(),raceGrid.lap(),battleMode?battleOver:raceGrid.finished(),physicsSteps,results.finishFrame(),results.hudSlide());

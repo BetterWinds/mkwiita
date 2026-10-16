@@ -65,14 +65,17 @@ void RaceResultsFlow::fill(const RaceResultEntry* byPosition,unsigned count,bool
  for(unsigned i=0;i<count_;++i){rows_[i]=byPosition[i];counts_[i].fill(rows_[i].previous,rows_[i].gain);}
 }
 
-void RaceResultsFlow::showTotals(const RaceResultEntry* rows,unsigned count){
- reset();fill(rows,count,true);sortTotals();enter(RaceFlowPhase::TotalIn);timeout_=~0u;
+void RaceResultsFlow::showTotals(const RaceResultEntry* rows,unsigned count,int leftTeam){
+ reset();leftTeam_=leftTeam;fill(rows,count,true);sortTotals();enter(RaceFlowPhase::TotalIn);timeout_=~0u;
 }
 
 void RaceResultsFlow::sortTotals(){
  // GPVSLeaderboardTotal::FillRows / ComparePlayers 0x8085A5F4: descending
  // total; on a tie a human ranks first, then this race's points decide.
- std::stable_sort(rows_.begin(),rows_.begin()+count_,[](const RaceResultEntry& a,const RaceResultEntry& b){
+ // Team standings (AwardItemWin): the left team's rows first.
+ const int left=leftTeam_;
+ std::stable_sort(rows_.begin(),rows_.begin()+count_,[left](const RaceResultEntry& a,const RaceResultEntry& b){
+  if(left>=0&&(a.team==left)!=(b.team==left))return a.team==left;
   const int ta=a.previous+a.gain,tb=b.previous+b.gain;
   if(ta!=tb)return ta>tb;
   if(a.human!=b.human)return a.human;

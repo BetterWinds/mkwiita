@@ -279,6 +279,7 @@ void CourseObjects::Impl::link(){
     if(const auto* drivable=K::Field::ObjectDrivableDirector::Instance())
         for(const auto* obj:drivable->objects())if(obj->mapObj())owner[obj->mapObj()].push_back(obj);
     const auto& flow=objects->flowTable();
+    unsigned coinPlacements=0;
     for(unsigned i=0;i<map->getGeoObjCount();++i){
         const auto* geo=map->getGeoObj(i);
         if(!geo||!(geo->presenceFlag()&1))continue;
@@ -290,7 +291,7 @@ void CourseObjects::Impl::link(){
         std::memcpy(v.resources,set->resources,sizeof v.resources);v.resources[sizeof v.resources-1]=0;
         std::strncpy(v.resource,v.resources,sizeof v.resource-1);
         if(char* semicolon=std::strchr(v.resource,';'))*semicolon=0;
-        if(!coins&&!std::strcmp(v.resource,"coin"))continue;
+        if(!std::strcmp(v.resource,"coin")&&(!coins||coinPlacements++%2))continue; // every other placement: half the arena's coins
         v.placement=placementMatrix(*geo);
         if(classifyObject(v,assets,course))visuals.push_back(v);
     }

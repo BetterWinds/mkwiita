@@ -42,7 +42,7 @@ static_assert(std::uint32_t(Cue::Boost) == cue::Boost && std::uint32_t(Cue::Boos
               std::uint32_t(Cue::SoundTrigger) == cue::SoundTrigger);
 static_assert(std::uint32_t(K::Kart::eStatus::ZipperTrick) == 47);
 // The presentation cues must not collide with Kinoko's.
-static_assert(cue::JumpAction > std::uint32_t(Cue::SoundTrigger) && cue::ZipperTrick > cue::JumpAction);
+static_assert(cue::JumpAction > std::uint32_t(Cue::SoundTrigger) && cue::ZipperTrick > cue::JumpAction && cue::CoinGet > cue::ZipperTrick);
 
 void fillRaceAudioFrame(RaceAudioFrame& f, snd::Vec3f eye, snd::Vec3f target) {
  f.eye = eye; f.target = target;

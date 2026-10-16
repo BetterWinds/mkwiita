@@ -23,6 +23,7 @@ namespace cue { enum : std::uint32_t {
  // Presentation cues added on the main thread (not Kinoko's):
  JumpAction = 1u << 27,   // the local driver model starts its trick (fn_1_18BE08: SE_VCL_JUMP_ACTION)
  ZipperTrick = 1u << 28,  // a half-pipe trick starts (fn_1_64AAC 0x805AF9E8: voice 0xb, stadium cheers)
+ CoinGet = 1u << 29,      // Coin Runners: the kart took a coin (SE_CC_COIN_GET)
 }; }
 struct RaceAudioKart {
  snd::Vec3f position;

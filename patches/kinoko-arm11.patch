@@ -93,7 +93,7 @@ index f35456b..a66f16f 100644
      ObjectCollisionConvexHull *m_hull;
      Kart::KartObject *m_kartObject;
 diff --git a/source/game/field/ObjectDirector.cc b/source/game/field/ObjectDirector.cc
-index edcbbda..ef30cea 100644
+index edcbbda..f8b4ece 100644
 --- a/source/game/field/ObjectDirector.cc
 +++ b/source/game/field/ObjectDirector.cc
 @@ -2,6 +2,7 @@
@@ -236,7 +236,7 @@ index edcbbda..ef30cea 100644
          return EGG::egg_new<ObjectCarTGE>(params);
      case ObjectId::KoopaBall:
          return EGG::egg_new<ObjectKoopaBall>(params);
-@@ -350,6 +424,15 @@ ObjectBase *ObjectDirector::createObject(const System::MapdataGeoObj &params) {
+@@ -350,6 +424,17 @@ ObjectBase *ObjectDirector::createObject(const System::MapdataGeoObj &params) {
          return EGG::egg_new<ObjectTwistedWay>(params);
      case ObjectId::TownBridge:
          return EGG::egg_new<ObjectTownBridge>(params);
@@ -247,6 +247,8 @@ index edcbbda..ef30cea 100644
 +        return EGG::egg_new<ObjectVeniceHasi>(params);
 +    case ObjectId::CasinoRoulette:
 +        return EGG::egg_new<ObjectCasinoRoulette>(params);
++    case ObjectId::Quicksand:
++        return EGG::egg_new<ObjectQuicksand>(params);
 +    case ObjectId::BBlock:
 +        return EGG::egg_new<ObjectVolcanoPiece>(params);
      case ObjectId::DKShip64:
@@ -2071,7 +2073,7 @@ index 14ee3e8..c10c236 100644
      f32 m_targetY;
  
 diff --git a/source/game/field/obj/ObjectId.hh b/source/game/field/obj/ObjectId.hh
-index e2bc0b5..3954d96 100644
+index e2bc0b5..4e58016 100644
 --- a/source/game/field/obj/ObjectId.hh
 +++ b/source/game/field/obj/ObjectId.hh
 @@ -23,9 +23,11 @@ enum class ObjectId {
@@ -2094,7 +2096,7 @@ index e2bc0b5..3954d96 100644
      DokanSFC = 0x12e,
      CastleTree1c = 0x130,
      MarioTreeGCc = 0x134,
-@@ -92,8 +95,12 @@ enum class ObjectId {
+@@ -92,8 +95,13 @@ enum class ObjectId {
      Turibashi = 0x202,
      FlamePoleEff = 0x203,
      Aurora = 0x204,
@@ -2103,6 +2105,7 @@ index e2bc0b5..3954d96 100644
      DCPillar = 0x208,
      Sandcone = 0x209,
 +    VeniceHasi = 0x20a, ///< Port: Delfino Pier's drawbridge.
++    Quicksand = 0x20c,  ///< Port: Thwomp Desert's sand floor.
 +    BBlock = 0x20d,     ///< Port: Block Plaza's blocks (retail derives them from VolcanoPiece).
      FlamePoleV = 0x212,
      FlamePoleVBig = 0x216,
@@ -2830,8 +2833,261 @@ index b71200d..7ee8ca2 100644
              }
          }
      } else {
+diff --git a/source/game/field/obj/ObjectQuicksand.cc b/source/game/field/obj/ObjectQuicksand.cc
+new file mode 100644
+index 0000000..acd5428
+--- /dev/null
++++ b/source/game/field/obj/ObjectQuicksand.cc
+@@ -0,0 +1,159 @@
++#include "ObjectQuicksand.hh"
++
++#include "game/field/CollisionDirector.hh"
++
++namespace Kinoko::Field {
++
++ObjectQuicksand::ObjectQuicksand(const System::MapdataGeoObj &params) : ObjectDrivable(params) {}
++
++ObjectQuicksand::~ObjectQuicksand() = default;
++
++f32 ObjectQuicksand::depth(f32 radius, const EGG::Vector3f &pos, KCLTypeMask mask) const {
++    if (!(mask & KCL_ATTRIBUTE_TYPE_BIT(ATTRIBUTE))) {
++        return 0.0f;
++    }
++
++    const f32 x = pos.x - this->pos().x, z = pos.z - this->pos().z;
++    if (x * x + z * z > RADIUS * RADIUS) {
++        return 0.0f;
++    }
++
++    // KColData's plane test: a point meets the face 0.01 above it, a sphere at its radius.
++    const f32 planeDist = pos.y - this->pos().y;
++    const f32 dist = (radius > 0.0f ? radius : 0.01f) - planeDist;
++    return dist < THICKNESS ? dist : 0.0f;
++}
++
++bool ObjectQuicksand::hitPartial(f32 dist, CollisionInfoPartial *info, KCLTypeMask *maskOut,
++        bool push) const {
++    if (dist <= 0.0f) {
++        return false;
++    }
++
++    constexpr KCLTypeMask bit = KCL_ATTRIBUTE_TYPE_BIT(ATTRIBUTE);
++    if (maskOut) {
++        if (push) {
++            CollisionDirector::Instance()->pushCollisionEntry(dist, maskOut, bit, ATTRIBUTE);
++        } else {
++            *maskOut |= bit;
++        }
++    }
++    if (info) {
++        info->update(EGG::Vector3f::ey * dist);
++    }
++    return true;
++}
++
++bool ObjectQuicksand::hitFull(f32 dist, CollisionInfo *info, KCLTypeMask *maskOut,
++        bool push) const {
++    if (dist <= 0.0f) {
++        return false;
++    }
++
++    constexpr KCLTypeMask bit = KCL_ATTRIBUTE_TYPE_BIT(ATTRIBUTE);
++    if (maskOut) {
++        if (push) {
++            CollisionDirector::Instance()->pushCollisionEntry(dist, maskOut, bit, ATTRIBUTE);
++        } else {
++            *maskOut |= bit;
++        }
++    }
++    if (info) {
++        info->update(dist, EGG::Vector3f::ey * dist, EGG::Vector3f::ey, bit);
++    }
++    return true;
++}
++
++bool ObjectQuicksand::checkPointPartial(const EGG::Vector3f &pos, const EGG::Vector3f & /*prevPos*/,
++        KCLTypeMask mask, CollisionInfoPartial *info, KCLTypeMask *maskOut) {
++    return hitPartial(depth(0.0f, pos, mask), info, maskOut, false);
++}
++
++bool ObjectQuicksand::checkPointPartialPush(const EGG::Vector3f &pos,
++        const EGG::Vector3f & /*prevPos*/, KCLTypeMask mask, CollisionInfoPartial *info,
++        KCLTypeMask *maskOut) {
++    return hitPartial(depth(0.0f, pos, mask), info, maskOut, true);
++}
++
++bool ObjectQuicksand::checkPointFull(const EGG::Vector3f &pos, const EGG::Vector3f & /*prevPos*/,
++        KCLTypeMask mask, CollisionInfo *info, KCLTypeMask *maskOut) {
++    return hitFull(depth(0.0f, pos, mask), info, maskOut, false);
++}
++
++bool ObjectQuicksand::checkPointFullPush(const EGG::Vector3f &pos, const EGG::Vector3f & /*prevPos*/,
++        KCLTypeMask mask, CollisionInfo *info, KCLTypeMask *maskOut) {
++    return hitFull(depth(0.0f, pos, mask), info, maskOut, true);
++}
++
++bool ObjectQuicksand::checkSpherePartial(f32 radius, const EGG::Vector3f &pos,
++        const EGG::Vector3f & /*prevPos*/, KCLTypeMask mask, CollisionInfoPartial *info,
++        KCLTypeMask *maskOut, u32 /*timeOffset*/) {
++    return hitPartial(depth(radius, pos, mask), info, maskOut, false);
++}
++
++bool ObjectQuicksand::checkSpherePartialPush(f32 radius, const EGG::Vector3f &pos,
++        const EGG::Vector3f & /*prevPos*/, KCLTypeMask mask, CollisionInfoPartial *info,
++        KCLTypeMask *maskOut, u32 /*timeOffset*/) {
++    return hitPartial(depth(radius, pos, mask), info, maskOut, true);
++}
++
++bool ObjectQuicksand::checkSphereFull(f32 radius, const EGG::Vector3f &pos,
++        const EGG::Vector3f & /*prevPos*/, KCLTypeMask mask, CollisionInfo *info,
++        KCLTypeMask *maskOut, u32 /*timeOffset*/) {
++    return hitFull(depth(radius, pos, mask), info, maskOut, false);
++}
++
++bool ObjectQuicksand::checkSphereFullPush(f32 radius, const EGG::Vector3f &pos,
++        const EGG::Vector3f & /*prevPos*/, KCLTypeMask mask, CollisionInfo *info,
++        KCLTypeMask *maskOut, u32 /*timeOffset*/) {
++    return hitFull(depth(radius, pos, mask), info, maskOut, true);
++}
++
++bool ObjectQuicksand::checkPointCachedPartial(const EGG::Vector3f &pos,
++        const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfoPartial *info,
++        KCLTypeMask *maskOut) {
++    return checkPointPartial(pos, prevPos, mask, info, maskOut);
++}
++
++bool ObjectQuicksand::checkPointCachedPartialPush(const EGG::Vector3f &pos,
++        const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfoPartial *info,
++        KCLTypeMask *maskOut) {
++    return checkPointPartialPush(pos, prevPos, mask, info, maskOut);
++}
++
++bool ObjectQuicksand::checkPointCachedFull(const EGG::Vector3f &pos, const EGG::Vector3f &prevPos,
++        KCLTypeMask mask, CollisionInfo *info, KCLTypeMask *maskOut) {
++    return checkPointFull(pos, prevPos, mask, info, maskOut);
++}
++
++bool ObjectQuicksand::checkPointCachedFullPush(const EGG::Vector3f &pos,
++        const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfo *info,
++        KCLTypeMask *maskOut) {
++    return checkPointFullPush(pos, prevPos, mask, info, maskOut);
++}
++
++bool ObjectQuicksand::checkSphereCachedPartial(f32 radius, const EGG::Vector3f &pos,
++        const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfoPartial *info,
++        KCLTypeMask *maskOut, u32 timeOffset) {
++    return checkSpherePartial(radius, pos, prevPos, mask, info, maskOut, timeOffset);
++}
++
++bool ObjectQuicksand::checkSphereCachedPartialPush(f32 radius, const EGG::Vector3f &pos,
++        const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfoPartial *info,
++        KCLTypeMask *maskOut, u32 timeOffset) {
++    return checkSpherePartialPush(radius, pos, prevPos, mask, info, maskOut, timeOffset);
++}
++
++bool ObjectQuicksand::checkSphereCachedFull(f32 radius, const EGG::Vector3f &pos,
++        const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfo *info, KCLTypeMask *maskOut,
++        u32 timeOffset) {
++    return checkSphereFull(radius, pos, prevPos, mask, info, maskOut, timeOffset);
++}
++
++bool ObjectQuicksand::checkSphereCachedFullPush(f32 radius, const EGG::Vector3f &pos,
++        const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfo *info, KCLTypeMask *maskOut,
++        u32 timeOffset) {
++    return checkSphereFullPush(radius, pos, prevPos, mask, info, maskOut, timeOffset);
++}
++
++} // namespace Kinoko::Field
+diff --git a/source/game/field/obj/ObjectQuicksand.hh b/source/game/field/obj/ObjectQuicksand.hh
+new file mode 100644
+index 0000000..6ae3faf
+--- /dev/null
++++ b/source/game/field/obj/ObjectQuicksand.hh
+@@ -0,0 +1,82 @@
++#pragma once
++
++#include "game/field/obj/ObjectDrivable.hh"
++
++namespace Kinoko::Field {
++
++/// @brief Port: Thwomp Desert's sand floor (retail quicksand, ObjFlow 0x20C, "quicksand;dossun").
++/// sand_battle's course.kcl leaves the arena's middle open: a disc of about 9000 units around
++/// the object has no floor, and the sand that covers it (quicksand.brres, a flat grid at the
++/// object's height, ±9500) is the object's surface. The archive carries no KCL for it, so this
++/// collides as that plane: the ring's slippery sand (KCL attribute 0x0001) within the mesh's
++/// radius. Thwomp stomps and their sand waves are not modelled.
++class ObjectQuicksand final : public ObjectDrivable {
++public:
++    ObjectQuicksand(const System::MapdataGeoObj &params);
++    ~ObjectQuicksand() override;
++
++    void createCollision() override {}
++    void calcCollisionTransform() override {}
++
++    [[nodiscard]] f32 getCollisionRadius() const override {
++        return RADIUS + 500.0f;
++    }
++
++    [[nodiscard]] bool checkPointPartial(const EGG::Vector3f &pos, const EGG::Vector3f &prevPos,
++            KCLTypeMask mask, CollisionInfoPartial *info, KCLTypeMask *maskOut) override;
++    [[nodiscard]] bool checkPointPartialPush(const EGG::Vector3f &pos, const EGG::Vector3f &prevPos,
++            KCLTypeMask mask, CollisionInfoPartial *info, KCLTypeMask *maskOut) override;
++    [[nodiscard]] bool checkPointFull(const EGG::Vector3f &pos, const EGG::Vector3f &prevPos,
++            KCLTypeMask mask, CollisionInfo *info, KCLTypeMask *maskOut) override;
++    [[nodiscard]] bool checkPointFullPush(const EGG::Vector3f &pos, const EGG::Vector3f &prevPos,
++            KCLTypeMask mask, CollisionInfo *info, KCLTypeMask *maskOut) override;
++    [[nodiscard]] bool checkSpherePartial(f32 radius, const EGG::Vector3f &pos,
++            const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfoPartial *info,
++            KCLTypeMask *maskOut, u32 timeOffset) override;
++    [[nodiscard]] bool checkSpherePartialPush(f32 radius, const EGG::Vector3f &pos,
++            const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfoPartial *info,
++            KCLTypeMask *maskOut, u32 timeOffset) override;
++    [[nodiscard]] bool checkSphereFull(f32 radius, const EGG::Vector3f &pos,
++            const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfo *info,
++            KCLTypeMask *maskOut, u32 timeOffset) override;
++    [[nodiscard]] bool checkSphereFullPush(f32 radius, const EGG::Vector3f &pos,
++            const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfo *info,
++            KCLTypeMask *maskOut, u32 timeOffset) override;
++    [[nodiscard]] bool checkPointCachedPartial(const EGG::Vector3f &pos,
++            const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfoPartial *info,
++            KCLTypeMask *maskOut) override;
++    [[nodiscard]] bool checkPointCachedPartialPush(const EGG::Vector3f &pos,
++            const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfoPartial *info,
++            KCLTypeMask *maskOut) override;
++    [[nodiscard]] bool checkPointCachedFull(const EGG::Vector3f &pos, const EGG::Vector3f &prevPos,
++            KCLTypeMask mask, CollisionInfo *info, KCLTypeMask *maskOut) override;
++    [[nodiscard]] bool checkPointCachedFullPush(const EGG::Vector3f &pos,
++            const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfo *info,
++            KCLTypeMask *maskOut) override;
++    [[nodiscard]] bool checkSphereCachedPartial(f32 radius, const EGG::Vector3f &pos,
++            const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfoPartial *info,
++            KCLTypeMask *maskOut, u32 timeOffset) override;
++    [[nodiscard]] bool checkSphereCachedPartialPush(f32 radius, const EGG::Vector3f &pos,
++            const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfoPartial *info,
++            KCLTypeMask *maskOut, u32 timeOffset) override;
++    [[nodiscard]] bool checkSphereCachedFull(f32 radius, const EGG::Vector3f &pos,
++            const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfo *info,
++            KCLTypeMask *maskOut, u32 timeOffset) override;
++    [[nodiscard]] bool checkSphereCachedFullPush(f32 radius, const EGG::Vector3f &pos,
++            const EGG::Vector3f &prevPos, KCLTypeMask mask, CollisionInfo *info,
++            KCLTypeMask *maskOut, u32 timeOffset) override;
++
++private:
++    /// quicksand.brres MDL0 extents (±9499.5 in X and Z, flat at Y 0).
++    static constexpr f32 RADIUS = 9500.0f;
++    /// How far below the sand a point or sphere still meets it, as a KCL prism's thickness.
++    static constexpr f32 THICKNESS = 300.0f;
++    static constexpr u16 ATTRIBUTE = 0x0001;
++
++    /// Penetration of a sphere (radius 0 for a point) into the sand, or <= 0 for none.
++    [[nodiscard]] f32 depth(f32 radius, const EGG::Vector3f &pos, KCLTypeMask mask) const;
++    bool hitPartial(f32 dist, CollisionInfoPartial *info, KCLTypeMask *maskOut, bool push) const;
++    bool hitFull(f32 dist, CollisionInfo *info, KCLTypeMask *maskOut, bool push) const;
++};
++
++} // namespace Kinoko::Field
 diff --git a/source/game/field/obj/ObjectRegistry.hh b/source/game/field/obj/ObjectRegistry.hh
-index c206e01..ad1b08f 100644
+index c206e01..be3a72d 100644
 --- a/source/game/field/obj/ObjectRegistry.hh
 +++ b/source/game/field/obj/ObjectRegistry.hh
 @@ -11,6 +11,7 @@
@@ -2842,7 +3098,15 @@ index c206e01..ad1b08f 100644
  #include "game/field/obj/ObjectChoropu.hh"
  #include "game/field/obj/ObjectCow.hh"
  #include "game/field/obj/ObjectCrab.hh"
-@@ -63,6 +64,8 @@
+@@ -53,6 +54,7 @@
+ #include "game/field/obj/ObjectPsea.hh"
+ #include "game/field/obj/ObjectPuchiPakkun.hh"
+ #include "game/field/obj/ObjectPylon.hh"
++#include "game/field/obj/ObjectQuicksand.hh"
+ #include "game/field/obj/ObjectRock.hh"
+ #include "game/field/obj/ObjectSanbo.hh"
+ #include "game/field/obj/ObjectSandcone.hh"
+@@ -63,6 +65,8 @@
  #include "game/field/obj/ObjectTruckWagon.hh"
  #include "game/field/obj/ObjectTuribashi.hh"
  #include "game/field/obj/ObjectTwistedWay.hh"

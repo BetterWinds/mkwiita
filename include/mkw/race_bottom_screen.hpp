@@ -37,6 +37,9 @@ struct BottomView {
     std::array<BottomRacer,12> racer{};
     unsigned items=0;
     std::array<BottomItem,MaxItems> item{};
+    static constexpr unsigned MaxCoins=96;
+    unsigned coins=0;
+    std::array<std::array<float,2>,MaxCoins> coin{}; // Coin Runners coins on the ground (world x, z): yellow dots on drawMini
     float headingX=0,headingZ=-1; // the local kart's forward direction (world XZ)
     bool timerVisible=false;      // CtrlRaceTime: shown once the countdown runs
     uint32_t milliseconds=0;      // official race time (the player's own once finished)

@@ -523,7 +523,8 @@ def main():
   'cup_course':course_names,
   'battle_course':battle_labels,
   'ghost':['Race This Ghost','Watch the Replay','Solo Time Trials'],
-  'ghost_info':course_names+['There are no ghosts for this course.'],
+  # The ghost card's time is set per character (Composer::chars): 1'23"456.
+  'ghost_info':course_names+character_labels+list('0123456789\'"'),
   'course':course_names+battle_labels,'vs':['Solo Race','Team Race'],'battle':['Balloon Battle','Coin Runners'],
   'confirm':['OK','Start Race','Race This Ghost','Watch the Replay','Solo Time Trials'],
   'back':['←Back','Back'],

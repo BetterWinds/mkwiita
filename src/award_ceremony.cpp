@@ -32,10 +32,10 @@ constexpr unsigned PodiumHold=180;
 // demowin02 is a single frame: the cut between the drive and the podium.
 constexpr unsigned CutHold=60;
 // models/ceremony/text.bin order (tools/cook_ceremony.py TEXT).
-enum TextIndex:unsigned {TextCongratulations=0,TextBetterLuck=1,TextCup=2,TextRank=10,TextGrade=11,TextPlace=19,TextClass=22,TextCount=26};
+enum TextIndex:unsigned {TextCongratulations=0,TextBetterLuck=1,TextCup=2,TextRank=10,TextGrade=11,TextPlace=19,TextClass=22,TextTeam=26,TextMode=28,TextCount=31};
 constexpr const char* TextKeys[TextCount]={"congratulations","better_luck","cup_0","cup_1","cup_2","cup_3","cup_4","cup_5","cup_6","cup_7",
     "rank","grade_0","grade_1","grade_2","grade_3","grade_4","grade_5","grade_6","grade_7",
-    "place_0","place_1","place_2","class_0","class_1","class_2","class_3"};
+    "place_0","place_1","place_2","class_0","class_1","class_2","class_3","team_0","team_1","mode_0","mode_1","mode_2"};
 C3D_Mtx frame(Vec3 x,Vec3 y,Vec3 z,Vec3 at){
     C3D_Mtx m;Mtx_Identity(&m);
     m.r[0].x=x.x;m.r[0].y=y.x;m.r[0].z=z.x;m.r[0].w=at.x;
@@ -135,7 +135,10 @@ bool AwardCeremony::load(const Setup& setup){
     // Overlay: the closing line, the cup and the rank grade.
     std::array<uint16_t,TextCount*2> sizes{};
     if(FILE* f=std::fopen("models/ceremony/text.bin","rb")){
-        if(std::fread(sizes.data(),2,sizes.size(),f)!=sizes.size())sizes={};
+        // Files cooked before a string was added are shorter: those strings
+        // stay hidden, the rest still show.
+        const std::size_t read=std::fread(sizes.data(),2,sizes.size(),f);
+        std::fill(sizes.begin()+std::ptrdiff_t(read&~std::size_t(1)),sizes.end(),uint16_t(0));
         std::fclose(f);
     }
     auto text=[&](Text& t,unsigned index){
@@ -150,6 +153,7 @@ bool AwardCeremony::load(const Setup& setup){
     text(cupName_,TextCup+std::min(setup_.cup,7u));
     text(rankLabel_,TextRank);
     text(gradeText_,TextGrade+grade(setup_.points));
+    if(setup_.team){text(teamText_,TextTeam+std::min(setup_.winner,1u));text(modeText_,TextMode+std::min(setup_.mode,2u));}
     // Award cup icons: the Special Cup's is the crown (oukan), the Leaf Cup's konoha.
     static const char* cupFiles[8]={"kinoko","flower","star","oukan","koura","banana","konoha","thunder"};
     char path[96];std::snprintf(path,sizeof path,"textures/ui/award/award__tt_cup_icon_%s_00.t3x",cupFiles[std::min(setup_.cup,7u)]);
@@ -373,7 +377,14 @@ void AwardCeremony::drawOverlay(Renderer& renderer,unsigned settled,bool standin
     constexpr float Top=22.f,Icon=28.f,Line=12.f;
     // Teams have no cup, class or grade: the headline only.
     if(setup_.team){
-        if(standings)return;
+        if(standings){
+            // AwardItemWin: the mode at the top left, "The red/blue team
+            // wins!" over the two columns in the winners' colour.
+            text(modeText_,12.f,Top,Line,Gold0,Gold1,0.f);
+            if(setup_.winner==0)text(teamText_,display::CenterX,58.f,22.f,0xffd8d8ffu,0xff6060ffu,.5f);
+            else text(teamText_,display::CenterX,58.f,22.f,0xd8e8ffffu,0x5888ffffu,.5f);
+            return;
+        }
         if(setup_.won)text(headline_,display::CenterX,62.f,24.f,Gold0,Gold1,.5f);
         else text(headline_,display::CenterX,62.f,22.f,0xc8ffffffu,0x40d8ffffu,.5f);
         return;
