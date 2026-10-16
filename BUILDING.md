@@ -1,5 +1,8 @@
 # Building Mario Kart Wii for PS Vita
 
+>[!IMPORTANT]
+>For MacOS and Linux please refer to [BUILDING-MAC-LINUX.md](BUILDING-MAC-LINUX.md)
+
 The build makes two things:
 - **`build/vita/mkw.vpk`:** the program.
 - **`build/vita/data/mkw/`:** the game files, converted from your own disc.
