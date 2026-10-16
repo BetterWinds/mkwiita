@@ -57,6 +57,14 @@ yourself, on your own computer, from your own Mario Kart Wii disc.
 - [Python 3.11+](https://www.python.org/downloads/), [Node.js LTS](https://nodejs.org) and [Git](https://git-scm.com).
 - [VitaSDK](https://vitasdk.org), only if you build the VPK yourself.
 
+**To build on macOS or Linux** (see [BUILDING-MAC-LINUX.md](BUILDING-MAC-LINUX.md)):
+- **Mario Kart Wii (USA)**, game ID `RMCE01`, dumped as `.iso` or `.wbfs`. Convert RVZ or NKit dumps to ISO in Dolphin first. Other regions aren't supported yet.
+- A Mac or Linux PC with about 15 GB free.
+- [Python 3.11+](https://www.python.org/downloads/), [Node.js LTS](https://nodejs.org) and [Git](https://git-scm.com).
+- devkitPro's `tex3ds`. On Linux, install it with `dkp-pacman -S tex3ds`. On macOS you have to build it from source; the guide walks you through it.
+- Run `python3 build-game-files.py` from the repo folder. This only builds the game files; get the VPK from the [releases](https://github.com/boomannotjeff/mkwiita/releases/latest).
+
+
 ## Quick start
 
 1. **Get the VPK:** download `mkw.vpk` from the [latest release](https://github.com/boomannotjeff/mkwiita/releases/latest).
